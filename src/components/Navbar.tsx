@@ -46,7 +46,7 @@ export const Navbar: React.FC = () => {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-lg text-cozy-text tracking-tight font-sans">
-                CozyFlow
+                Rascunho
               </span>
               <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-cozy-lavender-light text-cozy-lavender border border-cozy-lavender/30">
                 Dark Mode

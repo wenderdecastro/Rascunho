@@ -1,6 +1,13 @@
 # Changelog
 
-Todas as alterações notáveis do **CozyFlow** são documentadas neste arquivo, seguindo o padrão [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e versionamento semântico ([SemVer](https://semver.org/lang/pt-BR/)).
+Todas as alterações notáveis do **Rascunho** são documentadas neste arquivo, seguindo o padrão [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e versionamento semântico ([SemVer](https://semver.org/lang/pt-BR/)).
+
+---
+
+## [1.2.1] - 2026-11-14
+
+### Changed
+- **Rebranding Inicial de Produto (`CozyFlow` → `Rascunho`):** atualizado o nome da aplicação em interface (`Navbar`, `index.html`), manifestos (`package.json`, `package-lock.json`) e documentação do Squad, mantendo integralmente a preservação das chaves de `localStorage` existentes (`cozyflow_dark_v4_*`).
 
 ---
 

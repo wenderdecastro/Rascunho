@@ -1,10 +1,10 @@
-# 🌸 CozyFlow — v1.2.0
+# 🌸 Rascunho — v1.2.1
 
 > Um aplicativo SaaS de planejamento temporal, rotina contextual e gestão de objetivos que une clareza operacional à estética acolhedora e anti-burnout **Cozy Dark Mode** (Desktop-First).
 
 ---
 
-## ✨ Funcionalidades Principais (`v1.2.0`)
+## ✨ Funcionalidades Principais (`v1.2.1`)
 
 ### 1. ☀️ Meu Dia (`MEU_DIA`)
 * **Layout Amplo 75% / 25%:** Cards operacionais (`Atividade Atual` + `Tarefas de Hoje`) ocupando 75% (`lg:col-span-9`) ao lado da **Régua Vertical Dividida (25%, `lg:col-span-3`)**.
@@ -40,7 +40,7 @@
 
 ## 🤖 Squad Multi-Agente & Governança
 
-O desenvolvimento e a validação contínua do CozyFlow são estruturados com **6 agentes especializados** configurados em [AGENTS.md](AGENTS.md) e `.agents/agents/`:
+O desenvolvimento e a validação contínua do Rascunho são estruturados com **6 agentes especializados** configurados em [AGENTS.md](AGENTS.md) e `.agents/agents/`:
 
 | Agente | Função no Squad | Definição |
 | :--- | :--- | :--- |

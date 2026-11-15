@@ -1,14 +1,14 @@
 ---
 name: validacao-squad
 description: >-
-  Orquestra o Squad completo do CozyFlow (pm, pa, designer, dev, reviewer e qa)
+  Orquestra o Squad completo do Rascunho (pm, pa, designer, dev, reviewer e qa)
   para planejar, implementar, auditar, validar e versionar qualquer nova feature,
   bugfix ou release do aplicativo.
 ---
 
-# Fluxo de Validação do Squad CozyFlow
+# Fluxo de Validação do Squad Rascunho
 
-Use esta skill sempre que o usuário pedir uma nova funcionalidade, correção, auditoria completa de qualidade ou novo release versionado no **CozyFlow**.
+Use esta skill sempre que o usuário pedir uma nova funcionalidade, correção, auditoria completa de qualidade ou novo release versionado no **Rascunho**.
 
 ## Integrantes do Squad (`invoke_subagent`)
 - **`pm`** — Alinhamento à visão do produto, escopo e priorização.

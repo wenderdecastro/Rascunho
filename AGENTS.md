@@ -2,7 +2,7 @@
 trigger: always_on
 ---
 
-# Governança Multi-Agente & Engenharia — CozyFlow
+# Governança Multi-Agente & Engenharia — Rascunho
 
 Este repositório adota um fluxo de trabalho estruturado com **6 agentes especializados** definidos em `.agents/agents/`:
 
