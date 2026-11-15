@@ -2,6 +2,24 @@
   "name": "rascunho",
   "private": true,
   "version": "1.2.2",
+  "description": "SaaS de planejamento temporal, rotina contextual por níveis de energia e gestão de objetivos anti-burnout em Cozy Pastel Dark Mode.",
+  "license": "MIT",
+  "author": "dedezinho <contatowenderdecastro@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wenderdecastro/Rascunho.git"
+  },
+  "keywords": [
+    "react",
+    "typescript",
+    "tailwindcss",
+    "framer-motion",
+    "productivity",
+    "time-management",
+    "routine-planner",
+    "cozy-dark-mode",
+    "anti-burnout"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
