@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #12161A;
+    color: #F1F5F9;
+    font-family: 'Outfit', 'Nunito', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom Cozy Dark Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #181E26;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2D3748;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4A5568;
+}
+
+/* Dark Glassmorphism & Soft Glow */
+.cozy-glass {
+  background: rgba(28, 33, 41, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.cozy-card-shadow {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 2px 6px -1px rgba(0, 0, 0, 0.2);
+}
+
+.cozy-card-hover {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cozy-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6), 0 4px 8px -2px rgba(0, 0, 0, 0.3);
+}
