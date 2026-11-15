@@ -5,6 +5,7 @@ import {
   ProgressBarItem,
   TaskItem,
   DayHoursConfig,
+  RecurrenceRule,
 } from '../types';
 
 // Format seconds into "1h 45m" or "25m" or "0 min"
@@ -60,6 +61,88 @@ export function formatDateBR(dateStr: string): string {
   const parts = dateStr.split('-');
   if (parts.length !== 3) return dateStr;
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+// Expand Google-Calendar-style RecurrenceRule into YYYY-MM-DD dates
+export function expandRecurrenceDates(
+  startDateStr: string,
+  rule?: RecurrenceRule,
+  maxHorizonDays = 56
+): string[] {
+  if (!rule || rule.frequency === 'NONE') {
+    return [startDateStr];
+  }
+
+  const interval = Math.max(1, Math.floor(rule.interval || 1));
+  const maxOccurrences =
+    rule.endType === 'AFTER_OCCURRENCES'
+      ? Math.max(1, Math.min(60, Math.floor(rule.occurrences || 1)))
+      : 60;
+
+  const capEndStr = addDaysToDateString(startDateStr, 365);
+  let effectiveEndStr = addDaysToDateString(startDateStr, maxHorizonDays);
+  if (rule.endType === 'ON_DATE' && rule.endDate) {
+    effectiveEndStr = rule.endDate < capEndStr ? rule.endDate : capEndStr;
+  } else if (rule.endType === 'AFTER_OCCURRENCES') {
+    effectiveEndStr = capEndStr;
+  }
+
+  if (effectiveEndStr < startDateStr) {
+    return [startDateStr];
+  }
+
+  const results: string[] = [];
+  const startDate = new Date(startDateStr + 'T12:00:00');
+  const startWeekday = startDate.getDay();
+
+  if (
+    rule.frequency === 'WEEKLY' ||
+    (rule.frequency === 'CUSTOM' && rule.daysOfWeek && rule.daysOfWeek.length > 0)
+  ) {
+    const activeWeekdays = new Set(
+      rule.daysOfWeek && rule.daysOfWeek.length > 0 ? rule.daysOfWeek : [startWeekday]
+    );
+    for (let offset = 0; offset <= 365; offset++) {
+      const candidateStr = addDaysToDateString(startDateStr, offset);
+      if (candidateStr > effectiveEndStr) break;
+      const weekIndex = Math.floor((startWeekday + offset) / 7);
+      const weekday = (startWeekday + offset) % 7;
+      if (weekIndex % interval === 0 && activeWeekdays.has(weekday)) {
+        results.push(candidateStr);
+        if (results.length >= maxOccurrences) break;
+      }
+    }
+  } else if (rule.frequency === 'MONTHLY') {
+    const startYear = startDate.getFullYear();
+    const startMonth = startDate.getMonth();
+    const startDay = startDate.getDate();
+
+    for (let step = 0; step < 36; step++) {
+      const targetMonthIndex = startMonth + step * interval;
+      const tempYear = startYear + Math.floor(targetMonthIndex / 12);
+      const tempMonth = ((targetMonthIndex % 12) + 12) % 12;
+      const daysInTargetMonth = new Date(tempYear, tempMonth + 1, 0).getDate();
+      const clampedDay = Math.min(startDay, daysInTargetMonth);
+      const candidateDate = new Date(tempYear, tempMonth, clampedDay, 12, 0, 0);
+      const candidateStr = formatLocalDateString(candidateDate);
+
+      if (candidateStr > effectiveEndStr) break;
+      if (candidateStr >= startDateStr) {
+        results.push(candidateStr);
+        if (results.length >= maxOccurrences) break;
+      }
+    }
+  } else {
+    // DAILY or CUSTOM without weekdays
+    for (let step = 0; step <= 365; step++) {
+      const candidateStr = addDaysToDateString(startDateStr, step * interval);
+      if (candidateStr > effectiveEndStr) break;
+      results.push(candidateStr);
+      if (results.length >= maxOccurrences) break;
+    }
+  }
+
+  return results.length > 0 ? results : [startDateStr];
 }
 
 // Pastel celebration confetti
@@ -156,9 +239,9 @@ export function calculateRealCapacity(
     ? Math.max(60, timeStringToMinutes(dayCfg.endHour) - timeStringToMinutes(dayCfg.startHour))
     : 16 * 60;
 
-  const dailyRoutine = routineBlocks.filter((b) => b.dayOfWeek === dayOfWeek && b.tier !== 'REST');
+  const dailyRoutine = routineBlocks.filter((b) => b.dayOfWeek === dayOfWeek);
   const dailyScheduled = scheduledBlocks.filter(
-    (b) => b.date === targetDateStr && !b.isCancelledToday && b.tier !== 'REST'
+    (b) => b.date === targetDateStr && !b.isCancelledToday
   );
 
   // Merge routine & scheduled occupied intervals so overlapping blocks/areas don't double count

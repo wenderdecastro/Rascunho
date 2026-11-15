@@ -1,10 +1,21 @@
-export type EnergyTier = 'FOCUS' | 'TRANSIT' | 'BACKGROUND' | 'REST';
+export type EnergyTier = 'FOCUS' | 'TRANSIT' | 'BACKGROUND';
 
 export type Priority = 'P1' | 'P2' | 'P3' | 'P4';
 
 export type Obligation = 'MANDATORY' | 'FLEXIBLE';
 
 export type ProgressType = 'TIME' | 'TASKS' | 'CHECKPOINT';
+
+export type RecurrenceFrequency = 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM';
+
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  interval: number;
+  daysOfWeek?: number[]; // 0 = Dom, 1 = Seg, ... 6 = Sáb
+  endType: 'NEVER' | 'ON_DATE' | 'AFTER_OCCURRENCES';
+  endDate?: string; // YYYY-MM-DD
+  occurrences?: number;
+}
 
 export interface DayHistoryChunk {
   date: string;
@@ -31,7 +42,7 @@ export interface ProgressBarItem {
   title: string;
   type: ProgressType;
   color: string;
-  energyTier: 'FOCUS' | 'TRANSIT' | 'BACKGROUND';
+  energyTier: EnergyTier;
   createdAt: string;
   isCompleted: boolean;
 
@@ -67,7 +78,7 @@ export interface RoutineBlock {
   tier: EnergyTier;
   obligation: Obligation;
   color: string;
-  areaType?: RoutineAreaType; // 'WORK' | 'COLLEGE' | 'COMMUTE' | 'CUSTOM'
+  areaType?: RoutineAreaType; // Legado/sugestão visual opcional
 }
 
 export interface ScheduledBlock {
@@ -79,13 +90,15 @@ export interface ScheduledBlock {
   tier: EnergyTier;
   obligation: Obligation;
   layer: number; // 0 = base track, 1 = layered on top
-  allocationType?: 'PROGRESS' | 'TASK' | 'TIME';
+  allocationType?: 'PROGRESS' | 'TASK';
   routineOriginId?: string; // Identifies if overridden from a base routine block
   isCancelledToday?: boolean;
   linkedProgressId?: string;
   linkedTaskId?: string;
   isCompleted?: boolean;
   color?: string;
+  recurrence?: RecurrenceRule;
+  recurringSeriesId?: string;
 }
 
 export interface TaskItem {
@@ -93,15 +106,14 @@ export interface TaskItem {
   title: string;
   priority: Priority;
   obligation: Obligation;
-  energyTier: 'FOCUS' | 'TRANSIT' | 'BACKGROUND';
+  energyTier: EnergyTier;
   isCompleted: boolean;
   date?: string; // YYYY-MM-DD
   durationMinutes: number;
   subitems?: TaskSubItem[];
-  // Checkboxes de Elegibilidade para Áreas do Dia
-  eligibleWork?: boolean; // Elegível para Trabalho
-  eligibleCollege?: boolean; // Elegível para Faculdade
-  eligibleCommute?: boolean; // Elegível para Transporte
+  recurrence?: RecurrenceRule;
+  recurringSeriesId?: string;
+  attachedAreaId?: string;
 }
 
 export interface DayOverride {
@@ -109,7 +121,8 @@ export interface DayOverride {
   isSOSActive: boolean;
   isNightClosed: boolean;
   discardedTaskIds: string[];
-  hiddenRoutineIds?: string[]; // Routine blocks overridden/modified/removed for this date only
+  hiddenRoutineIds?: string[]; // Routine areas hidden for this date only (legacy/compat)
+  customRoutineAreas?: RoutineBlock[]; // Day-only override of routine areas
 }
 
 export interface DayHoursConfig {

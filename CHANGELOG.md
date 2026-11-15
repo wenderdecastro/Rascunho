@@ -4,6 +4,25 @@ Todas as alterações notáveis do **CozyFlow** são documentadas neste arquivo,
 
 ---
 
+## [1.2.0] - 2026-11-14
+
+### Added
+- **Régua Vertical Dividida em 2 Colunas (25% em Meu Dia e Agenda):**
+  - Coluna esquerda dedicada a **Áreas do Dia** em baixa opacidade (`Áreas (Só hoje)`), permitindo criar, redimensionar, mover ou remover áreas exclusivamente para a data selecionada (`dayOverrides[date].customRoutineAreas`) sem alterar a rotina semanal base, além do botão **Restaurar áreas**.
+  - Coluna direita dedicada a **Blocos de Atividade** (`Atividades`), separando visual e funcionalmente turnos/contextos de blocos executáveis.
+- **Recorrência Estilo Google Agenda (`RecurrenceRule` + `expandRecurrenceDates`):**
+  - Suporte a repetição **Diária**, **Semanal** (com seleção de dias da semana `D S T Q Q S S`), **Mensal** e **Personalizada** (`interval`), com término **Nunca (até 8 semanas)**, **Em data específica** ou **Após N ocorrências** ao criar **Blocos de Atividade** ou **Tarefas compatíveis na Rotina**.
+- **Painel de Tarefas Compatíveis por Tag de Energia na Rotina (`RotinaView`):**
+  - Criação e visualização de tarefas compatíveis agrupadas por Tag de Energia e com recorrência diretamente na aba **Rotina**, sem criação de blocos de atividade nessa aba.
+
+### Changed
+- **Estritamente 3 Tags de Energia (`EnergyTier`):** unificado em **`FOCUS`** (`🧠 Focado`), **`TRANSIT`** (`🎧 Baixo Foco`) e **`BACKGROUND`** (`🫧 Segundo Plano`). Removida a 4ª tag (`REST`) da interface e tipos, mantendo normalização retrocompatível para dados pré-existentes no `localStorage`.
+- **Áreas do Dia 100% Genéricas:** removidos os presets fixos (`Trabalho`, `Faculdade`, `Transporte`) e os checkboxes de elegibilidade nas tarefas; áreas agora recebem nome livre, **Obrigatoriedade** (`MANDATORY` | `FLEXIBLE`) e 1 das 3 Tags de Energia, definindo compatibilidade exclusivamente pela correspondência de `EnergyTier`.
+- **Modal `BlockAllocationModal` Simplificado em 2 Abas:** mantidas apenas **`Alocar Progresso`** e **`Alocar Tarefa`** (removida a aba **`Alocar Tempo`**). Quando o horário se sobrepõe a uma Área do Dia, o modal filtra e trava a compatibilidade pela Tag de Energia da área.
+- **Proporção 75% / 25% Unificada (`MeuDiaView` e `AgendaView`):** em desktop (`lg:col-span-9` + `lg:col-span-3`), ambas as abas reservam 25% de largura horizontal para a régua interativa dividida.
+
+---
+
 ## [1.1.0] - 2026-11-14
 
 ### Added

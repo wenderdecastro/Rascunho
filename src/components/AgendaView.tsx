@@ -23,7 +23,7 @@ export const AgendaView: React.FC = () => {
     () => new Date(selectedDate + 'T00:00:00')
   );
 
-  // Modal state for 3-tab BlockAllocationModal
+  // Modal state for 2-tab BlockAllocationModal
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStartTime, setModalStartTime] = useState('09:00');
   const [modalEndTime, setModalEndTime] = useState('10:00');
@@ -73,7 +73,7 @@ export const AgendaView: React.FC = () => {
             <span>Agenda Mensal &amp; Régua de Alocação</span>
           </h1>
           <p className="text-sm text-cozy-subtext mt-0.5">
-            Selecione um dia no calendário grande e arraste na régua vertical ao lado para alocar progressos, tarefas ou blocos de tempo.
+            Selecione um dia no calendário (75%) e use a régua dividida ao lado (25%) para ajustar áreas só daquele dia ou alocar blocos de atividade com repetição.
           </p>
         </div>
 
@@ -221,13 +221,14 @@ export const AgendaView: React.FC = () => {
                             ? 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/25'
                             : blk.tier === 'TRANSIT'
                               ? 'bg-cozy-butter/15 text-cozy-butter border-cozy-butter/25'
-                              : blk.tier === 'BACKGROUND'
-                                ? 'bg-cozy-sky/15 text-cozy-sky border-cozy-sky/25'
-                                : 'bg-cozy-sage/15 text-cozy-sage border-cozy-sage/25'
+                              : 'bg-cozy-sky/15 text-cozy-sky border-cozy-sky/25'
                         }`}
                       >
                         <span className="font-mono text-[9px] mr-1 opacity-75">{blk.startTime}</span>
-                        <span>{blk.title}</span>
+                        <span>
+                          {blk.recurringSeriesId ? '↻ ' : ''}
+                          {blk.title}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -259,7 +260,7 @@ export const AgendaView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3-Tab Allocation Modal */}
+      {/* 2-Tab Allocation Modal */}
       <BlockAllocationModal
         isOpen={modalOpen}
         date={selectedDate}

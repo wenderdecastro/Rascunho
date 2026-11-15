@@ -9,8 +9,8 @@ Este repositório adota um fluxo de trabalho estruturado com **6 agentes especia
 | Agente | Papel | Responsabilidade Principal |
 | :--- | :--- | :--- |
 | **`pm`** | Product Manager | Visão do produto, priorização, coerência entre as 5 abas e validação de release (`CHANGELOG.md`). |
-| **`pa`** | Product Analyst | Regras de negócio (`calculateRealCapacity`, `getDayBurnoutForecast`, áreas da rotina, elegibilidade de tarefas, subprogressos, pausas adaptativas) e critérios de aceite. |
-| **`designer`** | UI/UX Designer | Identidade *Cozy Pastel Dark Mode*, layout *Desktop-First* (`max-w-[1920px]`), régua vertical de até `25%` na Agenda, zero truncamento `+n` e zero `alert()`/`confirm()` nativos. |
+| **`pa`** | Product Analyst | Regras de negócio (`calculateRealCapacity`, `getDayBurnoutForecast`, áreas genéricas pelas 3 Tags de Energia `FOCUS`/`TRANSIT`/`BACKGROUND`, recorrência `RecurrenceRule`, overrides diários isolados `customRoutineAreas`, subprogressos e pausas adaptativas). |
+| **`designer`** | UI/UX Designer | Identidade *Cozy Pastel Dark Mode*, layout *Desktop-First* (`max-w-[1920px]`), régua vertical dividida de até `25%` na Agenda e no Meu Dia, zero truncamento `+n` e zero `alert()`/`confirm()` nativos. |
 | **`dev`** | Desenvolvedor | Implementação React + TypeScript + Tailwind + Framer Motion preservando `localStorage` e performance. |
 | **`reviewer`** | Code Reviewer | Auditoria de estado, prevenção de duplicidade de confirmação, fuso horário local, cleanups e tipagem. |
 | **`qa`** | QA Engineer | Execução de `npx tsc --noEmit && npm run build`, verificação de rotas/fluxos nas 5 abas e aprovação final de versão. |

@@ -65,7 +65,7 @@ export const MeuDiaView: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStartTime, setModalStartTime] = useState('14:00');
   const [modalEndTime, setModalEndTime] = useState('15:00');
-  const [modalInitialTab, setModalInitialTab] = useState<'PROGRESS' | 'TASK' | 'TIME' | undefined>(
+  const [modalInitialTab, setModalInitialTab] = useState<'PROGRESS' | 'TASK' | undefined>(
     undefined
   );
   const [editingBlock, setEditingBlock] = useState<ScheduledBlock | null>(null);
@@ -111,7 +111,7 @@ export const MeuDiaView: React.FC = () => {
   const handleDragCreate = (
     startTime: string,
     endTime: string,
-    preferredTab?: 'PROGRESS' | 'TASK' | 'TIME'
+    preferredTab?: 'PROGRESS' | 'TASK'
   ) => {
     setEditingBlock(null);
     setModalStartTime(startTime);
@@ -133,7 +133,7 @@ export const MeuDiaView: React.FC = () => {
       case 'FOCUS':
         return {
           cls: 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/30',
-          label: '🧠 Foco Total',
+          label: '🧠 Focado',
         };
       case 'TRANSIT':
         return {
@@ -144,11 +144,6 @@ export const MeuDiaView: React.FC = () => {
         return {
           cls: 'bg-cozy-sky/15 text-cozy-sky border-cozy-sky/30',
           label: '🫧 Segundo Plano',
-        };
-      case 'REST':
-        return {
-          cls: 'bg-cozy-sage/15 text-cozy-sage border-cozy-sage/30',
-          label: '☁️ Descanso',
         };
     }
   };
@@ -306,10 +301,10 @@ export const MeuDiaView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Screen Layout: Left Column (Atividade Atual + Tarefas do Dia) + Right Interactive Vertical Ruler */}
+      {/* Main Screen Layout: Left 75% (Atividade Atual + Tarefas do Dia) + Right 25% Interactive Vertical Ruler */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column */}
-        <div className="lg:col-span-5 xl:col-span-4 space-y-5">
+        {/* Left Columns (75%) */}
+        <div className="lg:col-span-9 xl:col-span-9 grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
           {/* ATIVIDADE ATUAL */}
           <div className="bg-cozy-card rounded-3xl p-6 border border-cozy-border shadow-cozy space-y-5">
             <div className="flex items-center justify-between gap-2">
@@ -496,13 +491,11 @@ export const MeuDiaView: React.FC = () => {
             ) : currentActiveSchedule.currentArea ? (
               <div className="p-7 rounded-3xl bg-cozy-bg border-2 border-dashed border-cozy-lavender/40 text-center space-y-3">
                 <span className="text-3xl">
-                  {currentActiveSchedule.currentArea.areaType === 'WORK'
-                    ? '💼'
-                    : currentActiveSchedule.currentArea.areaType === 'COLLEGE'
-                      ? '🎓'
-                      : currentActiveSchedule.currentArea.areaType === 'COMMUTE'
-                        ? '🚌'
-                        : '🌿'}
+                  {currentActiveSchedule.currentArea.tier === 'FOCUS'
+                    ? '🧠'
+                    : currentActiveSchedule.currentArea.tier === 'TRANSIT'
+                      ? '🎧'
+                      : '🫧'}
                 </span>
                 <div>
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cozy-lavender/15 text-cozy-lavender border border-cozy-lavender/30 text-[11px] font-bold mb-1">
@@ -565,7 +558,7 @@ export const MeuDiaView: React.FC = () => {
             )}
           </div>
 
-          {/* TAREFAS DO DIA PANEL (Gerenciamento rápido, elegibilidade e exclusão) */}
+          {/* TAREFAS DO DIA PANEL (Gerenciamento rápido, tags de energia e exclusão) */}
           <div className="bg-cozy-card rounded-3xl p-5 border border-cozy-border shadow-cozy space-y-3.5">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -664,45 +657,40 @@ export const MeuDiaView: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Eligibility toggles */}
+                    {/* Tag de Energia da Tarefa */}
                     <div className="flex items-center gap-1.5 flex-wrap pl-6">
-                      <button
-                        type="button"
-                        onClick={() => updateTask(task.id, { eligibleWork: !task.eligibleWork })}
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-colors ${
-                          task.eligibleWork
-                            ? 'bg-cozy-sky/20 text-cozy-sky border-cozy-sky/40'
-                            : 'bg-cozy-card text-cozy-subtext border-cozy-border opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        💼 Trabalho
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateTask(task.id, { eligibleCollege: !task.eligibleCollege })
-                        }
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-colors ${
-                          task.eligibleCollege
-                            ? 'bg-cozy-lavender/20 text-cozy-lavender border-cozy-lavender/40'
-                            : 'bg-cozy-card text-cozy-subtext border-cozy-border opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        🎓 Faculdade
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateTask(task.id, { eligibleCommute: !task.eligibleCommute })
-                        }
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-colors ${
-                          task.eligibleCommute
-                            ? 'bg-cozy-butter/20 text-cozy-butter border-cozy-butter/40'
-                            : 'bg-cozy-card text-cozy-subtext border-cozy-border opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        🚌 Transporte
-                      </button>
+                      {(
+                        [
+                          {
+                            id: 'FOCUS',
+                            label: '🧠 Focado',
+                            activeCls: 'bg-cozy-lavender/20 text-cozy-lavender border-cozy-lavender/40',
+                          },
+                          {
+                            id: 'TRANSIT',
+                            label: '🎧 Baixo Foco',
+                            activeCls: 'bg-cozy-butter/20 text-cozy-butter border-cozy-butter/40',
+                          },
+                          {
+                            id: 'BACKGROUND',
+                            label: '🫧 Segundo Plano',
+                            activeCls: 'bg-cozy-sky/20 text-cozy-sky border-cozy-sky/40',
+                          },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => updateTask(task.id, { energyTier: opt.id })}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-colors ${
+                            task.energyTier === opt.id
+                              ? opt.activeCls
+                              : 'bg-cozy-card text-cozy-subtext border-cozy-border opacity-70 hover:opacity-100'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
 
                     {/* Compact clickable subitems */}
@@ -738,15 +726,15 @@ export const MeuDiaView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: INTERACTIVE VERTICAL RULER FOR TODAY */}
-        <div className="lg:col-span-7 xl:col-span-8">
+        {/* Right Column (25%): INTERACTIVE 2-SIDE VERTICAL RULER FOR TODAY */}
+        <div className="lg:col-span-3 xl:col-span-3">
           <InteractiveVerticalRuler
             dateStr={todayStr}
             onSelectBlock={handleSelectBlock}
             onDragCreate={handleDragCreate}
             hourHeight={56}
-            title="Régua Interativa de Hoje"
-            subtitle="Edite blocos da rotina só para hoje, redimensione horários ou arraste para alocar novas atividades"
+            title="Régua de Hoje"
+            subtitle="Áreas (só hoje) • Atividades"
             headerRight={
               <button
                 onClick={() => {

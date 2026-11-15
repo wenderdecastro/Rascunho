@@ -1,22 +1,70 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp, inferAreaType } from '../context/AppContext';
-import { RoutineBlock, RoutineAreaType, EnergyTier, Obligation } from '../types';
+import {
+  RoutineBlock,
+  EnergyTier,
+  Obligation,
+  Priority,
+  RecurrenceFrequency,
+  RecurrenceRule,
+  TaskItem,
+} from '../types';
 import {
   timeStringToMinutes,
   minutesToTimeString,
   formatSecondsToHuman,
+  expandRecurrenceDates,
+  formatLocalDateString,
+  formatDateBR,
 } from '../utils/helpers';
-import { Plus, Trash2, X, Clock, GripHorizontal, Sparkles } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  X,
+  Clock,
+  GripHorizontal,
+  Sparkles,
+  Repeat,
+  CheckSquare,
+  Check,
+} from 'lucide-react';
 
 const DAYS_OF_WEEK = [
-  { name: 'Segunda', id: 1 },
-  { name: 'Terça', id: 2 },
-  { name: 'Quarta', id: 3 },
-  { name: 'Quinta', id: 4 },
-  { name: 'Sexta', id: 5 },
-  { name: 'Sábado', id: 6 },
-  { name: 'Domingo', id: 0 },
+  { name: 'Segunda', short: 'Seg', id: 1 },
+  { name: 'Terça', short: 'Ter', id: 2 },
+  { name: 'Quarta', short: 'Qua', id: 3 },
+  { name: 'Quinta', short: 'Qui', id: 4 },
+  { name: 'Sexta', short: 'Sex', id: 5 },
+  { name: 'Sábado', short: 'Sáb', id: 6 },
+  { name: 'Domingo', short: 'Dom', id: 0 },
 ];
+
+const WEEKDAY_PILLS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+const AREA_QUICK_CHIPS = ['Trabalho', 'Faculdade', 'Transporte', 'Estudos', 'Rotina Matinal'];
+
+const TIER_META: Record<
+  EnergyTier,
+  { icon: string; label: string; badgeCls: string; colCls: string }
+> = {
+  FOCUS: {
+    icon: '🧠',
+    label: 'Focado',
+    badgeCls: 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/30',
+    colCls: 'border-cozy-lavender/30 bg-cozy-lavender/[0.04]',
+  },
+  TRANSIT: {
+    icon: '🎧',
+    label: 'Baixo Foco',
+    badgeCls: 'bg-cozy-butter/15 text-cozy-butter border-cozy-butter/30',
+    colCls: 'border-cozy-butter/30 bg-cozy-butter/[0.04]',
+  },
+  BACKGROUND: {
+    icon: '🫧',
+    label: 'Segundo Plano',
+    badgeCls: 'bg-cozy-sky/15 text-cozy-sky border-cozy-sky/30',
+    colCls: 'border-cozy-sky/30 bg-cozy-sky/[0.04]',
+  },
+};
 
 const HOUR_HEIGHT = 48; // px per hour on vertical ruler
 
@@ -43,9 +91,13 @@ export const RotinaView: React.FC = () => {
     currentTimeStr,
     routineBlocks,
     dayHoursConfigs,
+    tasks,
     addRoutineBlock,
     updateRoutineBlock,
     deleteRoutineBlock,
+    addTask,
+    toggleTask,
+    deleteTask,
     requestConfirm,
     showToast,
   } = useApp();
@@ -78,16 +130,81 @@ export const RotinaView: React.FC = () => {
   const [blockDrag, setBlockDrag] = useState<RoutineDragState | null>(null);
   const [createDrag, setCreateDrag] = useState<RoutineCreateState | null>(null);
 
-  // Modal State
+  // Area Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingBlock, setEditingBlock] = useState<RoutineBlock | null>(null);
   const [formDay, setFormDay] = useState<number>(1);
+  const [selectedDays, setSelectedDays] = useState<number[]>([1]);
   const [title, setTitle] = useState('');
-  const [areaType, setAreaType] = useState<RoutineAreaType>('WORK');
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('10:00');
   const [tier, setTier] = useState<EnergyTier>('FOCUS');
   const [obligation, setObligation] = useState<Obligation>('MANDATORY');
+
+  // Task Modal State (for routine/recurring tasks without creating activity blocks)
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskPriority, setTaskPriority] = useState<Priority>('P2');
+  const [taskTier, setTaskTier] = useState<EnergyTier>('FOCUS');
+  const [taskObligation, setTaskObligation] = useState<Obligation>('FLEXIBLE');
+  const [taskDuration, setTaskDuration] = useState<number>(45);
+  const [taskStartDate, setTaskStartDate] = useState<string>(() =>
+    formatLocalDateString(new Date())
+  );
+  const [taskRecFrequency, setTaskRecFrequency] = useState<RecurrenceFrequency>('WEEKLY');
+  const [taskRecInterval, setTaskRecInterval] = useState<number>(1);
+  const [taskRecDays, setTaskRecDays] = useState<number[]>([1, 3, 5]);
+  const [taskRecEndType, setTaskRecEndType] = useState<'NEVER' | 'ON_DATE' | 'AFTER_OCCURRENCES'>(
+    'NEVER'
+  );
+  const [taskRecEndDate, setTaskRecEndDate] = useState<string>('');
+  const [taskRecOccurrences, setTaskRecOccurrences] = useState<number>(8);
+
+  const builtTaskRecurrenceRule: RecurrenceRule | undefined = useMemo(() => {
+    if (taskRecFrequency === 'NONE') return undefined;
+    const baseWeekday = new Date(`${taskStartDate}T12:00:00`).getDay();
+    return {
+      frequency: taskRecFrequency,
+      interval: Math.max(1, taskRecInterval),
+      daysOfWeek:
+        taskRecFrequency === 'WEEKLY' || taskRecFrequency === 'CUSTOM'
+          ? taskRecDays.length > 0
+            ? taskRecDays
+            : [baseWeekday]
+          : undefined,
+      endType: taskRecEndType,
+      endDate: taskRecEndType === 'ON_DATE' && taskRecEndDate ? taskRecEndDate : undefined,
+      occurrences:
+        taskRecEndType === 'AFTER_OCCURRENCES' ? Math.max(1, taskRecOccurrences) : undefined,
+    };
+  }, [
+    taskRecFrequency,
+    taskRecInterval,
+    taskRecDays,
+    taskRecEndType,
+    taskRecEndDate,
+    taskRecOccurrences,
+    taskStartDate,
+  ]);
+
+  const taskRecPreviewCount = useMemo(() => {
+    if (!builtTaskRecurrenceRule) return 1;
+    return expandRecurrenceDates(taskStartDate, builtTaskRecurrenceRule).length;
+  }, [taskStartDate, builtTaskRecurrenceRule]);
+
+  const groupedTasksByTier = useMemo(() => {
+    const groups: Record<EnergyTier, TaskItem[]> = {
+      FOCUS: [],
+      TRANSIT: [],
+      BACKGROUND: [],
+    };
+    tasks
+      .filter((t) => !t.isCompleted)
+      .forEach((t) => {
+        groups[t.energyTier]?.push(t);
+      });
+    return groups;
+  }, [tasks]);
 
   const clientYToSnappedMinutes = (dayId: number, clientY: number) => {
     const el = columnRefs.current[dayId];
@@ -102,8 +219,8 @@ export const RotinaView: React.FC = () => {
   const openCreateModal = (dayId: number, sTime = '08:00', eTime = '10:00') => {
     setEditingBlock(null);
     setFormDay(dayId);
-    setTitle('Trabalho');
-    setAreaType('WORK');
+    setSelectedDays([dayId]);
+    setTitle('');
     setStartTime(sTime);
     setEndTime(eTime);
     setTier('FOCUS');
@@ -114,13 +231,30 @@ export const RotinaView: React.FC = () => {
   const openEditModal = (block: RoutineBlock) => {
     setEditingBlock(block);
     setFormDay(block.dayOfWeek);
+    setSelectedDays([block.dayOfWeek]);
     setTitle(block.title);
-    setAreaType(block.areaType || inferAreaType(block.title, block.tier));
     setStartTime(block.startTime);
     setEndTime(block.endTime);
     setTier(block.tier);
     setObligation(block.obligation);
     setShowModal(true);
+  };
+
+  const openTaskModal = (defaultTier: EnergyTier = 'FOCUS') => {
+    const todayStr = formatLocalDateString(new Date());
+    setTaskTitle('');
+    setTaskPriority('P2');
+    setTaskTier(defaultTier);
+    setTaskObligation('FLEXIBLE');
+    setTaskDuration(45);
+    setTaskStartDate(todayStr);
+    setTaskRecFrequency('WEEKLY');
+    setTaskRecInterval(1);
+    setTaskRecDays([new Date(`${todayStr}T12:00:00`).getDay()]);
+    setTaskRecEndType('NEVER');
+    setTaskRecEndDate('');
+    setTaskRecOccurrences(8);
+    setShowTaskModal(true);
   };
 
   const createDragRef = useRef<RoutineCreateState | null>(null);
@@ -291,12 +425,13 @@ export const RotinaView: React.FC = () => {
       return;
     }
 
-    const colorMap: Record<RoutineAreaType, string> = {
-      WORK: '#9AD4EE',
-      COLLEGE: '#B49BFA',
-      COMMUTE: '#F3D08E',
-      CUSTOM: '#8DE2BA',
+    const colorMap: Record<EnergyTier, string> = {
+      FOCUS: '#B49BFA',
+      TRANSIT: '#F3D08E',
+      BACKGROUND: '#9AD4EE',
     };
+
+    const inferredType = inferAreaType(title.trim(), tier);
 
     if (editingBlock) {
       updateRoutineBlock(editingBlock.id, {
@@ -306,64 +441,88 @@ export const RotinaView: React.FC = () => {
         endTime,
         tier,
         obligation,
-        areaType,
-        color: colorMap[areaType] || '#B49BFA',
+        areaType: inferredType,
+        color: colorMap[tier],
       });
     } else {
-      addRoutineBlock({
-        title: title.trim(),
-        dayOfWeek: formDay,
-        startTime,
-        endTime,
-        tier,
-        obligation,
-        areaType,
-        color: colorMap[areaType] || '#B49BFA',
+      const targetDays = selectedDays.length > 0 ? selectedDays : [formDay];
+      targetDays.forEach((dayId) => {
+        addRoutineBlock({
+          title: title.trim(),
+          dayOfWeek: dayId,
+          startTime,
+          endTime,
+          tier,
+          obligation,
+          areaType: inferredType,
+          color: colorMap[tier],
+        });
       });
+      if (targetDays.length > 1) {
+        showToast(`Área "${title.trim()}" adicionada a ${targetDays.length} dias da rotina.`, 'success');
+      }
     }
 
     setShowModal(false);
   };
 
+  const handleSaveRoutineTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskTitle.trim()) {
+      showToast('Digite o título da tarefa.', 'warning');
+      return;
+    }
+    addTask(
+      {
+        title: taskTitle.trim(),
+        priority: taskPriority,
+        obligation: taskObligation,
+        energyTier: taskTier,
+        isCompleted: false,
+        durationMinutes: Math.max(15, Number(taskDuration) || 45),
+        date: taskStartDate,
+        recurrence: builtTaskRecurrenceRule,
+      },
+      builtTaskRecurrenceRule
+    );
+    setShowTaskModal(false);
+    showToast(
+      builtTaskRecurrenceRule
+        ? `Tarefa recorrente criada em ${taskRecPreviewCount} data(s)!`
+        : 'Tarefa compatível criada na rotina!',
+      'success'
+    );
+  };
+
   const getRoutineAreaStyle = (block: RoutineBlock) => {
-    const type = block.areaType || inferAreaType(block.title, block.tier);
-    switch (type) {
-      case 'WORK':
-        return {
-          container:
-            'bg-cozy-sky/[0.12] border-2 border-dashed border-cozy-sky/50 text-cozy-sky hover:bg-cozy-sky/[0.18]',
-          badge: 'bg-cozy-sky/20 text-cozy-sky',
-          icon: '💼',
-          label: 'Área de Trabalho',
-          sub: 'Elegível p/ tarefas de trabalho',
-        };
-      case 'COLLEGE':
+    switch (block.tier) {
+      case 'FOCUS':
         return {
           container:
             'bg-cozy-lavender/[0.12] border-2 border-dashed border-cozy-lavender/50 text-cozy-lavender hover:bg-cozy-lavender/[0.18]',
           badge: 'bg-cozy-lavender/20 text-cozy-lavender',
-          icon: '🎓',
-          label: 'Área de Faculdade',
-          sub: 'Elegível p/ faculdade/estudos',
+          icon: '🧠',
+          label: 'Focado',
+          sub: 'Compatível c/ Focado',
         };
-      case 'COMMUTE':
+      case 'TRANSIT':
         return {
           container:
             'bg-cozy-butter/[0.12] border-2 border-dashed border-cozy-butter/50 text-cozy-butter hover:bg-cozy-butter/[0.18]',
           badge: 'bg-cozy-butter/20 text-cozy-butter',
-          icon: '🚌',
-          label: 'Área de Transporte',
-          sub: 'Elegível p/ deslocamento',
+          icon: '🎧',
+          label: 'Baixo Foco',
+          sub: 'Compatível c/ Baixo Foco',
         };
-      case 'CUSTOM':
+      case 'BACKGROUND':
       default:
         return {
           container:
-            'bg-cozy-sage/[0.12] border-2 border-dashed border-cozy-sage/50 text-cozy-sage hover:bg-cozy-sage/[0.18]',
-          badge: 'bg-cozy-sage/20 text-cozy-sage',
-          icon: '🌿',
-          label: 'Área Livre / Outra',
-          sub: 'Área personalizada',
+            'bg-cozy-sky/[0.12] border-2 border-dashed border-cozy-sky/50 text-cozy-sky hover:bg-cozy-sky/[0.18]',
+          badge: 'bg-cozy-sky/20 text-cozy-sky',
+          icon: '🫧',
+          label: 'Segundo Plano',
+          sub: 'Compatível c/ 2º Plano',
         };
     }
   };
@@ -382,20 +541,31 @@ export const RotinaView: React.FC = () => {
           <p className="text-sm text-cozy-subtext mt-0.5 flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-cozy-lavender" />
-              Configure áreas como Trabalho, Faculdade e Transporte. Suas tarefas serão distribuídas automaticamente nelas.
+              Defina áreas genéricas do dia com 1 das 3 Tags de Energia (Focado, Baixo Foco, Segundo Plano). Aqui não ficam blocos de atividade — apenas partes do dia e tarefas compatíveis.
             </span>
             <span>•</span>
             <span className="text-cozy-sage">Fundo verde = Tempo Livre</span>
           </p>
         </div>
 
-        <button
-          onClick={() => openCreateModal(1, '08:00', '10:00')}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-cozy-lavender text-cozy-bg font-extrabold text-xs hover:brightness-110 transition-all shadow-cozy-pill self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nova Área do Dia</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => openTaskModal('FOCUS')}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-cozy-sky/20 text-cozy-sky border border-cozy-sky/40 font-extrabold text-xs hover:bg-cozy-sky/30 transition-all"
+          >
+            <CheckSquare className="w-4 h-4" />
+            <span>Nova Tarefa Compatível</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => openCreateModal(1, '08:00', '10:00')}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-cozy-lavender text-cozy-bg font-extrabold text-xs hover:brightness-110 transition-all shadow-cozy-pill"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nova Área do Dia</span>
+          </button>
+        </div>
       </div>
 
       {/* 7 Simultaneous Vertical Rulers Grid */}
@@ -430,7 +600,7 @@ export const RotinaView: React.FC = () => {
                     )}
                   </div>
                   <div className="text-[10px] font-medium text-cozy-subtext">
-                    {blocksCount} compromissos
+                    {blocksCount} área(s)
                   </div>
                 </div>
               );
@@ -697,7 +867,123 @@ export const RotinaView: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal: Criar / Editar Bloco Fixo */}
+      {/* Compatible & Recurring Routine Tasks by Energy Tag (No Activity Blocks) */}
+      <div className="bg-cozy-card rounded-3xl p-6 border border-cozy-border shadow-cozy space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-extrabold text-cozy-text flex items-center gap-2">
+              <CheckSquare className="w-4 h-4 text-cozy-sky" />
+              <span>Tarefas Compatíveis por Tag de Energia</span>
+            </h2>
+            <p className="text-xs text-cozy-subtext mt-0.5">
+              Tarefas criadas aqui entram automaticamente nas áreas da rotina e janelas da mesma tag (sem criar blocos de atividade fixos).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => openTaskModal('FOCUS')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-cozy-sky/15 text-cozy-sky border border-cozy-sky/30 font-bold text-xs hover:bg-cozy-sky/25 transition-colors self-start sm:self-auto"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Adicionar Tarefa Recorrente</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {(['FOCUS', 'TRANSIT', 'BACKGROUND'] as EnergyTier[]).map((tierKey) => {
+            const meta = TIER_META[tierKey];
+            const list = groupedTasksByTier[tierKey];
+            return (
+              <div
+                key={tierKey}
+                className={`rounded-2xl border p-4 space-y-3 ${meta.colCls}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${meta.badgeCls}`}
+                  >
+                    {meta.icon} {meta.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openTaskModal(tierKey)}
+                    className="text-[11px] font-bold text-cozy-subtext hover:text-cozy-text flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Criar</span>
+                  </button>
+                </div>
+
+                {list.length === 0 ? (
+                  <p className="text-xs text-cozy-subtext text-center py-4 opacity-75">
+                    Nenhuma tarefa pendente nesta tag.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {list.map((task) => (
+                      <div
+                        key={task.id}
+                        className="p-2.5 rounded-xl bg-cozy-bg border border-cozy-border flex items-start justify-between gap-2"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleTask(task.id)}
+                          className="flex items-start gap-2 text-left min-w-0 flex-1"
+                        >
+                          <span className="mt-0.5 w-4 h-4 rounded-md border border-cozy-border bg-cozy-card hover:border-cozy-sage flex items-center justify-center shrink-0">
+                            {task.isCompleted && <Check className="w-3 h-3 text-cozy-sage" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-cozy-text truncate">{task.title}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-cozy-card border border-cozy-border text-cozy-subtext">
+                                {task.priority}
+                              </span>
+                              <span className="text-[10px] font-mono text-cozy-subtext">
+                                {task.durationMinutes}m
+                              </span>
+                              {task.date && (
+                                <span className="text-[10px] font-mono text-cozy-sky">
+                                  {formatDateBR(task.date)}
+                                </span>
+                              )}
+                              {task.recurringSeriesId && (
+                                <span
+                                  className="text-[10px] font-bold text-cozy-lavender flex items-center gap-0.5"
+                                  title="Tarefa recorrente"
+                                >
+                                  <Repeat className="w-2.5 h-2.5" />
+                                  Recorrente
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            requestConfirm(
+                              'Excluir Tarefa',
+                              `Remover a tarefa "${task.title}"?`,
+                              () => deleteTask(task.id)
+                            )
+                          }
+                          className="p-1 text-cozy-subtext hover:text-cozy-rose transition-colors shrink-0"
+                          title="Excluir tarefa"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Modal: Criar / Editar Área Genérica do Dia */}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -721,120 +1007,78 @@ export const RotinaView: React.FC = () => {
 
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold mb-1.5">Tipo de Área (Contexto)</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAreaType('WORK');
-                      if (!title || title === 'Faculdade' || title === 'Transporte' || title === 'Tempo Livre / Pessoal') {
-                        setTitle('Trabalho');
-                      }
-                      setTier('FOCUS');
-                    }}
-                    className={`p-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all ${
-                      areaType === 'WORK'
-                        ? 'bg-cozy-sky/20 text-cozy-sky border-cozy-sky'
-                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext hover:border-cozy-sky/40'
-                    }`}
-                  >
-                    <span className="text-base">💼</span>
-                    <div className="text-left">
-                      <div className="font-extrabold">Trabalho</div>
-                      <div className="text-[10px] opacity-75 font-normal">Tarefas de trabalho</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAreaType('COLLEGE');
-                      if (!title || title === 'Trabalho' || title === 'Transporte' || title === 'Tempo Livre / Pessoal') {
-                        setTitle('Faculdade');
-                      }
-                      setTier('FOCUS');
-                    }}
-                    className={`p-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all ${
-                      areaType === 'COLLEGE'
-                        ? 'bg-cozy-lavender/20 text-cozy-lavender border-cozy-lavender'
-                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext hover:border-cozy-lavender/40'
-                    }`}
-                  >
-                    <span className="text-base">🎓</span>
-                    <div className="text-left">
-                      <div className="font-extrabold">Faculdade</div>
-                      <div className="text-[10px] opacity-75 font-normal">Estudos & Aulas</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAreaType('COMMUTE');
-                      if (!title || title === 'Trabalho' || title === 'Faculdade' || title === 'Tempo Livre / Pessoal') {
-                        setTitle('Transporte');
-                      }
-                      setTier('TRANSIT');
-                    }}
-                    className={`p-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all ${
-                      areaType === 'COMMUTE'
-                        ? 'bg-cozy-butter/20 text-cozy-butter border-cozy-butter'
-                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext hover:border-cozy-butter/40'
-                    }`}
-                  >
-                    <span className="text-base">🚌</span>
-                    <div className="text-left">
-                      <div className="font-extrabold">Transporte</div>
-                      <div className="text-[10px] opacity-75 font-normal">Trânsito / Baixo foco</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAreaType('CUSTOM');
-                      if (!title || title === 'Trabalho' || title === 'Faculdade' || title === 'Transporte') {
-                        setTitle('Tempo Livre / Pessoal');
-                      }
-                    }}
-                    className={`p-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all ${
-                      areaType === 'CUSTOM'
-                        ? 'bg-cozy-sage/20 text-cozy-sage border-cozy-sage'
-                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext hover:border-cozy-sage/40'
-                    }`}
-                  >
-                    <span className="text-base">🌿</span>
-                    <div className="text-left">
-                      <div className="font-extrabold">Outra / Livre</div>
-                      <div className="text-[10px] opacity-75 font-normal">Personalizada</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold mb-1">Dia da Semana</label>
-                <select
-                  value={formDay}
-                  onChange={(e) => setFormDay(Number(e.target.value))}
-                  className="w-full px-4 py-2 rounded-2xl border border-cozy-border bg-cozy-bg text-xs font-bold text-cozy-text"
-                >
-                  {DAYS_OF_WEEK.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
                 <label className="block text-xs font-bold mb-1">Nome da Área</label>
                 <input
                   type="text"
-                  placeholder="Ex: Turno Trabalho, Aulas Noturnas, Deslocamento..."
+                  placeholder="Ex: Trabalho, Faculdade, Estudos, Transporte..."
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full px-4 py-2 rounded-2xl border border-cozy-border bg-cozy-bg text-sm focus:outline-none focus:ring-2 focus:ring-cozy-lavender text-cozy-text"
                   required
                 />
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  {AREA_QUICK_CHIPS.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setTitle(chip)}
+                      className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-cozy-bg border border-cozy-border text-cozy-subtext hover:text-cozy-text hover:border-cozy-lavender/50 transition-colors"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {editingBlock ? (
+                <div>
+                  <label className="block text-xs font-bold mb-1">Dia da Semana</label>
+                  <select
+                    value={formDay}
+                    onChange={(e) => setFormDay(Number(e.target.value))}
+                    className="w-full px-4 py-2 rounded-2xl border border-cozy-border bg-cozy-bg text-xs font-bold text-cozy-text"
+                  >
+                    {DAYS_OF_WEEK.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold mb-1.5">
+                    Dias da Semana ({selectedDays.length} selecionado(s))
+                  </label>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {DAYS_OF_WEEK.map((d) => {
+                      const active = selectedDays.includes(d.id);
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedDays((prev) =>
+                              prev.includes(d.id)
+                                ? prev.length > 1
+                                  ? prev.filter((id) => id !== d.id)
+                                  : prev
+                                : [...prev, d.id]
+                            )
+                          }
+                          className={`py-2 rounded-xl text-[11px] font-extrabold border transition-all ${
+                            active
+                              ? 'bg-cozy-lavender text-cozy-bg border-cozy-lavender shadow-sm'
+                              : 'bg-cozy-bg text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                          }`}
+                        >
+                          {d.short}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -860,12 +1104,14 @@ export const RotinaView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold mb-1.5">Tag de Atenção / Energia</label>
-                <div className="grid grid-cols-2 gap-2">
+                <label className="block text-xs font-bold mb-1.5">
+                  Tag de Energia (Define compatibilidade de tarefas e progressos)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setTier('FOCUS')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                    className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                       tier === 'FOCUS'
                         ? 'bg-cozy-lavender/20 text-cozy-lavender border-cozy-lavender'
                         : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
@@ -876,35 +1122,24 @@ export const RotinaView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setTier('TRANSIT')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                    className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                       tier === 'TRANSIT'
                         ? 'bg-cozy-butter/20 text-cozy-butter border-cozy-butter'
                         : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
                     }`}
                   >
-                    🟡 Baixo Foco
+                    🎧 Baixo Foco
                   </button>
                   <button
                     type="button"
                     onClick={() => setTier('BACKGROUND')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                    className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
                       tier === 'BACKGROUND'
                         ? 'bg-cozy-sky/20 text-cozy-sky border-cozy-sky'
                         : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
                     }`}
                   >
-                    🫧 Segundo Plano
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTier('REST')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
-                      tier === 'REST'
-                        ? 'bg-cozy-sage/20 text-cozy-sage border-cozy-sage'
-                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
-                    }`}
-                  >
-                    ☁️ Repouso
+                    🫧 2º Plano
                   </button>
                 </div>
               </div>
@@ -977,6 +1212,301 @@ export const RotinaView: React.FC = () => {
                     {editingBlock ? 'Salvar Área' : 'Criar Área da Rotina'}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Nova Tarefa Compatível & Recorrente (Sem Blocos de Atividade) */}
+      {showTaskModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+          onClick={() => setShowTaskModal(false)}
+        >
+          <div
+            className="bg-cozy-card rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-cozy-border text-cozy-text max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-extrabold text-lg">Nova Tarefa na Rotina</h3>
+                <p className="text-xs text-cozy-subtext">
+                  Compatível com áreas da mesma Tag de Energia (sem bloco fixo).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTaskModal(false)}
+                className="p-1.5 rounded-full text-cozy-subtext hover:bg-cozy-hover transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRoutineTask} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold mb-1">Título da Tarefa</label>
+                <input
+                  type="text"
+                  value={taskTitle}
+                  onChange={(e) => setTaskTitle(e.target.value)}
+                  placeholder="Ex: Responder e-mails, Revisar aula, Ouvir podcast..."
+                  className="w-full px-4 py-2 rounded-2xl border border-cozy-border bg-cozy-bg text-sm text-cozy-text focus:outline-none focus:ring-2 focus:ring-cozy-sky"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-cozy-subtext mb-1">
+                    Prioridade
+                  </label>
+                  <select
+                    value={taskPriority}
+                    onChange={(e) => setTaskPriority(e.target.value as Priority)}
+                    className="w-full px-3 py-2 rounded-xl border border-cozy-border bg-cozy-bg text-xs font-bold text-cozy-text"
+                  >
+                    <option value="P1">P1 — Crítica</option>
+                    <option value="P2">P2 — Alta</option>
+                    <option value="P3">P3 — Normal</option>
+                    <option value="P4">P4 — Baixa</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-cozy-subtext mb-1">
+                    Duração (min)
+                  </label>
+                  <input
+                    type="number"
+                    min={15}
+                    max={480}
+                    step={5}
+                    value={taskDuration}
+                    onChange={(e) => setTaskDuration(Math.max(15, Number(e.target.value) || 45))}
+                    className="w-full px-3 py-2 rounded-xl border border-cozy-border bg-cozy-bg text-xs font-bold text-cozy-text"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-cozy-subtext mb-1">
+                    Data Inicial
+                  </label>
+                  <input
+                    type="date"
+                    value={taskStartDate}
+                    onChange={(e) => setTaskStartDate(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl border border-cozy-border bg-cozy-bg text-xs font-bold text-cozy-text"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1.5">Tag de Energia Compatível</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['FOCUS', 'TRANSIT', 'BACKGROUND'] as EnergyTier[]).map((tierKey) => (
+                    <button
+                      key={tierKey}
+                      type="button"
+                      onClick={() => setTaskTier(tierKey)}
+                      className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all ${
+                        taskTier === tierKey
+                          ? TIER_META[tierKey].badgeCls
+                          : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
+                      }`}
+                    >
+                      {TIER_META[tierKey].icon} {TIER_META[tierKey].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Obrigatoriedade</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTaskObligation('MANDATORY')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      taskObligation === 'MANDATORY'
+                        ? 'bg-cozy-rose/20 text-cozy-rose border-cozy-rose/50'
+                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
+                    }`}
+                  >
+                    Obrigatório
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTaskObligation('FLEXIBLE')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      taskObligation === 'FLEXIBLE'
+                        ? 'bg-cozy-sky/20 text-cozy-sky border-cozy-sky/50'
+                        : 'border-cozy-border bg-cozy-bg text-cozy-subtext'
+                    }`}
+                  >
+                    Flexível
+                  </button>
+                </div>
+              </div>
+
+              {/* Google Calendar Style Recurrence */}
+              <div className="p-4 rounded-2xl bg-cozy-bg/75 border border-cozy-border space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-cozy-text">
+                    <Repeat className="w-4 h-4 text-cozy-sky" />
+                    <span>Repetição da Tarefa</span>
+                  </div>
+                  <select
+                    value={taskRecFrequency}
+                    onChange={(e) => setTaskRecFrequency(e.target.value as RecurrenceFrequency)}
+                    className="px-3 py-1.5 rounded-xl bg-cozy-card border border-cozy-border text-xs font-bold text-cozy-text"
+                  >
+                    <option value="NONE">Não se repete</option>
+                    <option value="DAILY">Diariamente</option>
+                    <option value="WEEKLY">Semanalmente</option>
+                    <option value="MONTHLY">Mensalmente</option>
+                    <option value="CUSTOM">Personalizada</option>
+                  </select>
+                </div>
+
+                {taskRecFrequency !== 'NONE' && (
+                  <div className="space-y-3 pt-2 border-t border-cozy-border/60">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-cozy-subtext font-semibold">A cada</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={taskRecInterval}
+                        onChange={(e) =>
+                          setTaskRecInterval(Math.max(1, Number(e.target.value) || 1))
+                        }
+                        className="w-16 px-2.5 py-1 rounded-xl bg-cozy-card border border-cozy-border text-xs font-bold text-cozy-text text-center"
+                      />
+                      <span className="text-xs text-cozy-subtext font-semibold">
+                        {taskRecFrequency === 'DAILY'
+                          ? 'dia(s)'
+                          : taskRecFrequency === 'MONTHLY'
+                            ? 'mês(es)'
+                            : 'semana(s)'}
+                      </span>
+                    </div>
+
+                    {(taskRecFrequency === 'WEEKLY' || taskRecFrequency === 'CUSTOM') && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {WEEKDAY_PILLS.map((lbl, idx) => {
+                          const selected = taskRecDays.includes(idx);
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() =>
+                                setTaskRecDays((prev) =>
+                                  prev.includes(idx)
+                                    ? prev.length > 1
+                                      ? prev.filter((d) => d !== idx)
+                                      : prev
+                                    : [...prev, idx]
+                                )
+                              }
+                              className={`w-8 h-8 rounded-full text-xs font-extrabold border transition-all ${
+                                selected
+                                  ? 'bg-cozy-sky text-cozy-bg border-cozy-sky shadow-sm'
+                                  : 'bg-cozy-card text-cozy-subtext border-cozy-border'
+                              }`}
+                            >
+                              {lbl}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTaskRecEndType('NEVER')}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold text-left ${
+                          taskRecEndType === 'NEVER'
+                            ? 'bg-cozy-sky/15 border-cozy-sky text-cozy-sky'
+                            : 'bg-cozy-card border-cozy-border text-cozy-subtext'
+                        }`}
+                      >
+                        Nunca (até 8 sem.)
+                      </button>
+                      <div
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border ${
+                          taskRecEndType === 'ON_DATE'
+                            ? 'bg-cozy-sky/15 border-cozy-sky'
+                            : 'bg-cozy-card border-cozy-border'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={taskRecEndType === 'ON_DATE'}
+                          onChange={() => setTaskRecEndType('ON_DATE')}
+                        />
+                        <input
+                          type="date"
+                          value={taskRecEndDate}
+                          onFocus={() => setTaskRecEndType('ON_DATE')}
+                          onChange={(e) => {
+                            setTaskRecEndType('ON_DATE');
+                            setTaskRecEndDate(e.target.value);
+                          }}
+                          className="w-full bg-transparent text-[11px] font-bold text-cozy-text focus:outline-none"
+                        />
+                      </div>
+                      <div
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border ${
+                          taskRecEndType === 'AFTER_OCCURRENCES'
+                            ? 'bg-cozy-sky/15 border-cozy-sky'
+                            : 'bg-cozy-card border-cozy-border'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={taskRecEndType === 'AFTER_OCCURRENCES'}
+                          onChange={() => setTaskRecEndType('AFTER_OCCURRENCES')}
+                        />
+                        <span className="text-[11px] text-cozy-subtext">Após</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={taskRecOccurrences}
+                          onFocus={() => setTaskRecEndType('AFTER_OCCURRENCES')}
+                          onChange={(e) => {
+                            setTaskRecEndType('AFTER_OCCURRENCES');
+                            setTaskRecOccurrences(Math.max(1, Number(e.target.value) || 1));
+                          }}
+                          className="w-12 bg-cozy-bg border border-cozy-border rounded-lg px-1.5 py-0.5 text-xs font-bold text-cozy-text text-center"
+                        />
+                        <span className="text-[11px] text-cozy-subtext">x</span>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-cozy-sky font-semibold">
+                      Criará {taskRecPreviewCount} ocorrência(s) da tarefa a partir de{' '}
+                      {formatDateBR(taskStartDate)}.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTaskModal(false)}
+                  className="px-4 py-2 rounded-full text-xs font-bold text-cozy-subtext hover:bg-cozy-hover"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-full text-xs font-extrabold bg-cozy-sky text-cozy-bg hover:brightness-110 shadow-cozy-pill"
+                >
+                  Criar Tarefa(s)
+                </button>
               </div>
             </form>
           </div>

@@ -16,6 +16,8 @@ import {
   DayOverride,
   Priority,
   DayHoursConfig,
+  EnergyTier,
+  RecurrenceRule,
 } from '../types';
 import {
   fireCuteConfetti,
@@ -24,6 +26,7 @@ import {
   minutesToTimeString,
   formatLocalDateString,
   addDaysToDateString,
+  expandRecurrenceDates,
 } from '../utils/helpers';
 
 export type ActiveTab = 'MEU_DIA' | 'AGENDA' | 'ROTINA' | 'PROGRESSOS' | 'CONFIGURACOES';
@@ -84,10 +87,14 @@ interface AppContextType {
   getRoutineAreasForDay: (dayOfWeek: number, dateStr?: string) => RoutineBlock[];
   hideRoutineAreaForDate: (dateStr: string, routineId: string) => void;
   restoreHiddenRoutineAreasForDate: (dateStr: string) => void;
+  addDayRoutineArea: (dateStr: string, area: Omit<RoutineBlock, 'id' | 'dayOfWeek'>) => void;
+  updateDayRoutineArea: (dateStr: string, areaId: string, updates: Partial<RoutineBlock>) => void;
+  deleteDayRoutineArea: (dateStr: string, areaId: string) => void;
+  resetDayRoutineAreas: (dateStr: string) => void;
   addRoutineBlock: (block: Omit<RoutineBlock, 'id'>) => void;
   updateRoutineBlock: (id: string, updates: Partial<RoutineBlock>) => void;
   deleteRoutineBlock: (id: string) => void;
-  addScheduledBlock: (block: Omit<ScheduledBlock, 'id'>) => ScheduledBlock;
+  addScheduledBlock: (block: Omit<ScheduledBlock, 'id'>, recurrence?: RecurrenceRule) => ScheduledBlock;
   updateEffectiveBlock: (
     dateStr: string,
     block: ScheduledBlock,
@@ -100,7 +107,7 @@ interface AppContextType {
   assignProgressToBlock: (blockId: string, progressId: string) => void;
 
   // Task Actions
-  addTask: (task: Omit<TaskItem, 'id'>) => TaskItem;
+  addTask: (task: Omit<TaskItem, 'id'>, recurrence?: RecurrenceRule) => TaskItem;
   updateTask: (id: string, updates: Partial<TaskItem>) => void;
   toggleTask: (id: string) => void;
   toggleTaskSubitem: (taskId: string, subitemId: string) => void;
@@ -191,6 +198,13 @@ export function inferAreaType(title: string, _tier?: string): RoutineAreaType {
 }
 
 const STORAGE_KEY = 'cozyflow_dark_v4';
+
+export function normalizeEnergyTier(tier: string | undefined): EnergyTier {
+  if (tier === 'FOCUS' || tier === 'TRANSIT' || tier === 'BACKGROUND') {
+    return tier;
+  }
+  return 'BACKGROUND';
+}
 
 function loadFromStorage<T>(suffix: string, fallback: T): T {
   try {
@@ -403,9 +417,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const defaultRoutine: RoutineBlock[] = [
     { id: 'r1', title: 'Aula: Engenharia de Software', dayOfWeek: 1, startTime: '08:00', endTime: '10:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'COLLEGE' },
     { id: 'r2', title: 'Deslocamento / Ônibus', dayOfWeek: 1, startTime: '10:15', endTime: '11:15', tier: 'TRANSIT', obligation: 'FLEXIBLE', color: '#FCA5A5', areaType: 'COMMUTE' },
-    { id: 'r3', title: 'Almoço & Pausa', dayOfWeek: 1, startTime: '12:00', endTime: '13:30', tier: 'REST', obligation: 'MANDATORY', color: '#86EFAC', areaType: 'CUSTOM' },
+    { id: 'r3', title: 'Almoço & Pausa', dayOfWeek: 1, startTime: '12:00', endTime: '13:30', tier: 'BACKGROUND', obligation: 'MANDATORY', color: '#7DD3FC', areaType: 'CUSTOM' },
     { id: 'r4', title: 'Trabalho / Projetos', dayOfWeek: 1, startTime: '14:00', endTime: '18:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'WORK' },
-    { id: 'r5', title: 'Academia & Treino', dayOfWeek: 2, startTime: '07:30', endTime: '09:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#FCA5A5', areaType: 'CUSTOM' },
+    { id: 'r5', title: 'Academia & Treino', dayOfWeek: 2, startTime: '07:30', endTime: '09:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'CUSTOM' },
     { id: 'r6', title: 'Trabalho', dayOfWeek: 2, startTime: '14:00', endTime: '18:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'WORK' },
     { id: 'r7', title: 'Aula: Banco de Dados', dayOfWeek: 3, startTime: '08:00', endTime: '11:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'COLLEGE' },
     { id: 'r8', title: 'Trabalho', dayOfWeek: 3, startTime: '14:00', endTime: '18:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'WORK' },
@@ -413,8 +427,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     { id: 'r10', title: 'Trabalho', dayOfWeek: 4, startTime: '14:00', endTime: '18:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'WORK' },
     { id: 'r11', title: 'Reunião de Alinhamento', dayOfWeek: 5, startTime: '10:00', endTime: '11:30', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'WORK' },
     { id: 'r12', title: 'Trabalho', dayOfWeek: 5, startTime: '14:00', endTime: '17:00', tier: 'FOCUS', obligation: 'MANDATORY', color: '#B49BFA', areaType: 'WORK' },
-    { id: 'r13', title: 'Organização da Casa & Mercado', dayOfWeek: 6, startTime: '09:00', endTime: '11:30', tier: 'BACKGROUND', obligation: 'FLEXIBLE', color: '#FCA5A5', areaType: 'CUSTOM' },
-    { id: 'r14', title: 'Descanso & Lazer', dayOfWeek: 0, startTime: '10:00', endTime: '16:00', tier: 'REST', obligation: 'MANDATORY', color: '#86EFAC', areaType: 'CUSTOM' },
+    { id: 'r13', title: 'Organização da Casa & Mercado', dayOfWeek: 6, startTime: '09:00', endTime: '11:30', tier: 'BACKGROUND', obligation: 'FLEXIBLE', color: '#7DD3FC', areaType: 'CUSTOM' },
+    { id: 'r14', title: 'Descanso & Lazer', dayOfWeek: 0, startTime: '10:00', endTime: '16:00', tier: 'BACKGROUND', obligation: 'MANDATORY', color: '#7DD3FC', areaType: 'CUSTOM' },
   ];
 
   const defaultScheduled: ScheduledBlock[] = [
@@ -456,13 +470,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isCompleted: false,
       date: todayStr,
       durationMinutes: 45,
-      eligibleWork: true,
-      eligibleCollege: false,
-      eligibleCommute: false,
       subitems: [
         { id: 'sub-1', title: 'Arrastar para criar bloco', isCompleted: true },
         { id: 'sub-2', title: 'Redimensionar puxando bordas', isCompleted: false },
-        { id: 'sub-3', title: 'Linha vermelha da hora atual', isCompleted: false },
+        { id: 'sub-3', title: 'Linha da hora atual', isCompleted: false },
       ],
     },
     {
@@ -474,9 +485,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isCompleted: false,
       date: todayStr,
       durationMinutes: 25,
-      eligibleWork: false,
-      eligibleCollege: false,
-      eligibleCommute: true,
       subitems: [],
     },
     {
@@ -488,9 +496,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isCompleted: false,
       date: todayStr,
       durationMinutes: 15,
-      eligibleWork: false,
-      eligibleCollege: false,
-      eligibleCommute: false,
       subitems: [],
     },
     {
@@ -502,9 +507,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isCompleted: false,
       date: todayStr,
       durationMinutes: 60,
-      eligibleWork: false,
-      eligibleCollege: true,
-      eligibleCommute: false,
       subitems: [
         { id: 'sub-4-1', title: 'Questões de Álgebra Relacional', isCompleted: false },
         { id: 'sub-4-2', title: 'Queries SQL Avançadas', isCompleted: false },
@@ -512,20 +514,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     },
   ];
 
-  // State Initialization (preserving user's localStorage)
+  // State Initialization (preserving user's localStorage and normalizing legacy REST tier)
   const [progressBars, setProgressBars] = useState<ProgressBarItem[]>(() =>
-    loadFromStorage('_progress', defaultProgressBars)
+    loadFromStorage('_progress', defaultProgressBars).map((p) => ({
+      ...p,
+      energyTier: normalizeEnergyTier(p.energyTier),
+    }))
   );
   const [routineBlocks, setRoutineBlocks] = useState<RoutineBlock[]>(() =>
-    loadFromStorage('_routine', defaultRoutine)
+    loadFromStorage('_routine', defaultRoutine).map((r) => ({
+      ...r,
+      tier: normalizeEnergyTier(r.tier),
+    }))
   );
   const [scheduledBlocks, setScheduledBlocks] = useState<ScheduledBlock[]>(() =>
-    loadFromStorage('_scheduled', defaultScheduled)
+    loadFromStorage('_scheduled', defaultScheduled).map((b) => ({
+      ...b,
+      tier: normalizeEnergyTier(b.tier),
+      allocationType:
+        b.allocationType === 'PROGRESS' || b.allocationType === 'TASK'
+          ? b.allocationType
+          : b.linkedProgressId
+            ? 'PROGRESS'
+            : b.linkedTaskId
+              ? 'TASK'
+              : undefined,
+    }))
   );
-  const [tasks, setTasks] = useState<TaskItem[]>(() => loadFromStorage('_tasks', defaultTasks));
-  const [dayOverrides, setDayOverrides] = useState<Record<string, DayOverride>>(() =>
-    loadFromStorage('_overrides', {})
+  const [tasks, setTasks] = useState<TaskItem[]>(() =>
+    loadFromStorage('_tasks', defaultTasks).map((t) => ({
+      ...t,
+      energyTier: normalizeEnergyTier(t.energyTier),
+    }))
   );
+  const [dayOverrides, setDayOverrides] = useState<Record<string, DayOverride>>(() => {
+    const raw = loadFromStorage<Record<string, DayOverride>>('_overrides', {});
+    const normalized: Record<string, DayOverride> = {};
+    for (const [k, ov] of Object.entries(raw)) {
+      normalized[k] = {
+        ...ov,
+        customRoutineAreas: ov.customRoutineAreas?.map((a) => ({
+          ...a,
+          tier: normalizeEnergyTier(a.tier),
+        })),
+      };
+    }
+    return normalized;
+  });
   const [dayHoursConfigs, setDayHoursConfigs] = useState<DayHoursConfig[]>(() =>
     loadFromStorage('_day_hours', defaultDayHoursConfigs)
   );
@@ -700,11 +735,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const getRoutineAreasForDay = useCallback(
     (dayOfWeek: number, dateStr?: string): RoutineBlock[] => {
+      if (dateStr) {
+        const override = dayOverrides[dateStr];
+        if (override?.customRoutineAreas !== undefined) {
+          return [...override.customRoutineAreas]
+            .map((r) => ({
+              ...r,
+              tier: normalizeEnergyTier(r.tier),
+              areaType: r.areaType || inferAreaType(r.title, r.tier),
+            }))
+            .sort((a, b) => timeStringToMinutes(a.startTime) - timeStringToMinutes(b.startTime));
+        }
+      }
       const hiddenIds = dateStr ? dayOverrides[dateStr]?.hiddenRoutineIds || [] : [];
       return routineBlocks
         .filter((r) => r.dayOfWeek === dayOfWeek && !hiddenIds.includes(r.id))
         .map((r) => ({
           ...r,
+          tier: normalizeEnergyTier(r.tier),
           areaType: r.areaType || inferAreaType(r.title, r.tier),
         }))
         .sort((a, b) => timeStringToMinutes(a.startTime) - timeStringToMinutes(b.startTime));
@@ -712,28 +760,105 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [routineBlocks, dayOverrides]
   );
 
-  const hideRoutineAreaForDate = useCallback((dateStr: string, routineId: string) => {
-    setDayOverrides((prev) => {
-      const existing = prev[dateStr] || {
-        date: dateStr,
-        isSOSActive: false,
-        isNightClosed: false,
-        discardedTaskIds: [],
-        hiddenRoutineIds: [],
-      };
-      const hidden = existing.hiddenRoutineIds || [];
-      if (hidden.includes(routineId)) return prev;
-      return {
-        ...prev,
-        [dateStr]: {
-          ...existing,
-          hiddenRoutineIds: [...hidden, routineId],
-        },
-      };
-    });
-  }, []);
+  const materializeBaseAreasForDate = useCallback(
+    (dateStr: string, existing?: DayOverride): RoutineBlock[] => {
+      if (existing?.customRoutineAreas !== undefined) {
+        return existing.customRoutineAreas;
+      }
+      const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+      const hiddenIds = existing?.hiddenRoutineIds || [];
+      return routineBlocks
+        .filter((r) => r.dayOfWeek === dayOfWeek && !hiddenIds.includes(r.id))
+        .map((r) => ({ ...r, tier: normalizeEnergyTier(r.tier) }));
+    },
+    [routineBlocks]
+  );
 
-  const restoreHiddenRoutineAreasForDate = useCallback((dateStr: string) => {
+  const addDayRoutineArea = useCallback(
+    (dateStr: string, area: Omit<RoutineBlock, 'id' | 'dayOfWeek'>) => {
+      const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+      setDayOverrides((prev) => {
+        const existing = prev[dateStr] || {
+          date: dateStr,
+          isSOSActive: false,
+          isNightClosed: false,
+          discardedTaskIds: [],
+          hiddenRoutineIds: [],
+        };
+        const currentAreas = materializeBaseAreasForDate(dateStr, existing);
+        const newArea: RoutineBlock = {
+          ...area,
+          id: `dayarea-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          dayOfWeek,
+          tier: normalizeEnergyTier(area.tier),
+        };
+        return {
+          ...prev,
+          [dateStr]: {
+            ...existing,
+            customRoutineAreas: [...currentAreas, newArea],
+          },
+        };
+      });
+    },
+    [materializeBaseAreasForDate]
+  );
+
+  const updateDayRoutineArea = useCallback(
+    (dateStr: string, areaId: string, updates: Partial<RoutineBlock>) => {
+      setDayOverrides((prev) => {
+        const existing = prev[dateStr] || {
+          date: dateStr,
+          isSOSActive: false,
+          isNightClosed: false,
+          discardedTaskIds: [],
+          hiddenRoutineIds: [],
+        };
+        const currentAreas = materializeBaseAreasForDate(dateStr, existing);
+        return {
+          ...prev,
+          [dateStr]: {
+            ...existing,
+            customRoutineAreas: currentAreas.map((a) =>
+              a.id === areaId
+                ? {
+                    ...a,
+                    ...updates,
+                    tier: updates.tier ? normalizeEnergyTier(updates.tier) : a.tier,
+                  }
+                : a
+            ),
+          },
+        };
+      });
+    },
+    [materializeBaseAreasForDate]
+  );
+
+  const deleteDayRoutineArea = useCallback(
+    (dateStr: string, areaId: string) => {
+      setDayOverrides((prev) => {
+        const existing = prev[dateStr] || {
+          date: dateStr,
+          isSOSActive: false,
+          isNightClosed: false,
+          discardedTaskIds: [],
+          hiddenRoutineIds: [],
+        };
+        const currentAreas = materializeBaseAreasForDate(dateStr, existing);
+        return {
+          ...prev,
+          [dateStr]: {
+            ...existing,
+            customRoutineAreas: currentAreas.filter((a) => a.id !== areaId),
+          },
+        };
+      });
+    },
+    [materializeBaseAreasForDate]
+  );
+
+  const resetDayRoutineAreas = useCallback((dateStr: string) => {
     setDayOverrides((prev) => {
       const existing = prev[dateStr];
       if (!existing) return prev;
@@ -742,10 +867,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         [dateStr]: {
           ...existing,
           hiddenRoutineIds: [],
+          customRoutineAreas: undefined,
         },
       };
     });
   }, []);
+
+  const hideRoutineAreaForDate = useCallback(
+    (dateStr: string, routineId: string) => {
+      deleteDayRoutineArea(dateStr, routineId);
+    },
+    [deleteDayRoutineArea]
+  );
+
+  const restoreHiddenRoutineAreasForDate = useCallback(
+    (dateStr: string) => {
+      resetDayRoutineAreas(dateStr);
+    },
+    [resetDayRoutineAreas]
+  );
 
   const getEffectiveBlocksForDate = useCallback(
     (dateStr: string): ScheduledBlock[] => {
@@ -856,7 +996,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ? {
                 ...b,
                 linkedProgressId: undefined,
-                allocationType: b.allocationType === 'PROGRESS' ? 'TIME' : b.allocationType,
+                allocationType: b.allocationType === 'PROGRESS' ? undefined : b.allocationType,
               }
             : b
         )
@@ -1038,15 +1178,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRoutineBlocks((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
-  // Scheduled Block Actions
-  const addScheduledBlock = useCallback((block: Omit<ScheduledBlock, 'id'>): ScheduledBlock => {
-    const newBlock: ScheduledBlock = {
-      ...block,
-      id: `sch-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-    };
-    setScheduledBlocks((prev) => [...prev, newBlock]);
-    return newBlock;
-  }, []);
+  // Scheduled Block Actions (with optional Google-Calendar-style Recurrence expansion)
+  const addScheduledBlock = useCallback(
+    (block: Omit<ScheduledBlock, 'id'>, recurrence?: RecurrenceRule): ScheduledBlock => {
+      const dates = expandRecurrenceDates(block.date, recurrence);
+      const isRecurring = dates.length > 1 && recurrence && recurrence.frequency !== 'NONE';
+      const seriesId = isRecurring
+        ? block.recurringSeriesId ||
+          `series-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        : block.recurringSeriesId;
+
+      const baseTs = Date.now();
+      const createdBlocks: ScheduledBlock[] = dates.map((occDate, idx) => ({
+        ...block,
+        date: occDate,
+        tier: normalizeEnergyTier(block.tier),
+        id: `sch-${baseTs}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+        recurrence: recurrence && recurrence.frequency !== 'NONE' ? recurrence : undefined,
+        recurringSeriesId: seriesId,
+      }));
+
+      setScheduledBlocks((prev) => [...prev, ...createdBlocks]);
+      return createdBlocks[0];
+    },
+    []
+  );
 
   const updateEffectiveBlock = useCallback(
     (dateStr: string, block: ScheduledBlock, updates: Partial<ScheduledBlock>) => {
@@ -1172,9 +1328,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return Math.max(aStart, blockStartMin) < Math.min(aEnd, blockEndMin);
       });
 
-      const areaType = matchedArea
-        ? matchedArea.areaType || inferAreaType(matchedArea.title, matchedArea.tier)
-        : 'FREE';
+      const requiredTier = matchedArea ? matchedArea.tier : block.tier;
 
       const alreadyScheduledTaskIds = new Set(
         scheduledBlocks
@@ -1182,14 +1336,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .map((b) => b.linkedTaskId!)
       );
 
-      const candidateTask = tasks.find((t) => {
-        if (t.isCompleted || alreadyScheduledTaskIds.has(t.id)) return false;
-
-        if (areaType === 'WORK') return t.eligibleWork === true;
-        if (areaType === 'COLLEGE') return t.eligibleCollege === true;
-        if (areaType === 'COMMUTE') return t.eligibleCommute === true;
-        return !t.eligibleWork && !t.eligibleCollege;
-      });
+      const candidateTask = tasks.find(
+        (t) =>
+          !t.isCompleted &&
+          (!t.date || t.date === block.date) &&
+          !alreadyScheduledTaskIds.has(t.id) &&
+          t.energyTier === requiredTier
+      );
 
       if (candidateTask) {
         assignTaskToBlock(blockId, candidateTask.id);
@@ -1197,9 +1350,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const candidateProgress = progressBars.find(
-        (p) =>
-          !p.isCompleted &&
-          (areaType === 'WORK' ? p.energyTier === 'FOCUS' : p.energyTier === block.tier)
+        (p) => !p.isCompleted && p.energyTier === requiredTier
       );
 
       if (candidateProgress) {
@@ -1239,7 +1390,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
 
       const candidateTasks = tasks
-        .filter((t) => !t.isCompleted && !alreadyScheduledTaskIds.has(t.id))
+        .filter(
+          (t) =>
+            !t.isCompleted &&
+            (!t.date || t.date === dateStr) &&
+            !alreadyScheduledTaskIds.has(t.id)
+        )
         .sort((a, b) => PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority]);
 
       if (candidateTasks.length === 0) {
@@ -1272,19 +1428,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return slices;
       };
 
-      // 1. Distribute into configured Routine Areas (Work, College, Commute, Custom)
+      const tierColor = (t: EnergyTier) =>
+        t === 'FOCUS' ? '#B49BFA' : t === 'TRANSIT' ? '#FDE047' : '#7DD3FC';
+
+      // 1. Distribute into configured Routine Areas matching strictly by EnergyTier
       for (const area of areas) {
         const areaStart = timeStringToMinutes(area.startTime);
         const areaEnd = timeStringToMinutes(area.endTime);
-        const areaType = area.areaType || inferAreaType(area.title, area.tier);
 
-        const eligibleForArea = candidateTasks.filter((t) => {
-          if (usedTaskIds.has(t.id)) return false;
-          if (areaType === 'WORK') return t.eligibleWork === true;
-          if (areaType === 'COLLEGE') return t.eligibleCollege === true;
-          if (areaType === 'COMMUTE') return t.eligibleCommute === true;
-          return !t.eligibleWork && !t.eligibleCollege && t.energyTier === area.tier;
-        });
+        const eligibleForArea = candidateTasks.filter(
+          (t) => !usedTaskIds.has(t.id) && t.energyTier === area.tier
+        );
 
         const freeSlices = getUnoccupiedSlices(areaStart, areaEnd);
         for (const slice of freeSlices) {
@@ -1305,12 +1459,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               date: dateStr,
               startTime: minutesToTimeString(blockStart),
               endTime: minutesToTimeString(blockEnd),
-              tier: task.energyTier || area.tier,
+              tier: area.tier,
               obligation: task.obligation || 'FLEXIBLE',
               layer: 0,
               allocationType: 'TASK',
               linkedTaskId: task.id,
-              color: area.color || (areaType === 'WORK' ? '#9AD4EE' : '#B49BFA'),
+              color: area.color || tierColor(area.tier),
             });
 
             existingIntervals.push({ start: blockStart, end: blockEnd });
@@ -1320,7 +1474,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // 2. Distribute tasks with NO work and NO college checkboxes into Free windows
+      // 2. Distribute remaining tasks into Free windows outside configured Areas
       const occupiedByAreasOrBlocks = [
         ...areas.map((a) => ({
           start: timeStringToMinutes(a.startTime),
@@ -1341,13 +1495,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         globalFreeSlices.push({ start: freePtr, end: dayEndMin });
       }
 
-      const freeEligibleTasks = candidateTasks.filter(
-        (t) => !usedTaskIds.has(t.id) && !t.eligibleWork && !t.eligibleCollege
-      );
+      const remainingTasks = candidateTasks.filter((t) => !usedTaskIds.has(t.id));
 
       for (const slice of globalFreeSlices) {
         let sliceCur = slice.start;
-        for (const task of freeEligibleTasks) {
+        for (const task of remainingTasks) {
           if (usedTaskIds.has(task.id)) continue;
           if (sliceCur + 15 > slice.end) break;
 
@@ -1368,7 +1520,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             layer: 0,
             allocationType: 'TASK',
             linkedTaskId: task.id,
-            color: '#8DE2BA',
+            color: tierColor(task.energyTier || 'FOCUS'),
           });
 
           existingIntervals.push({ start: blockStart, end: blockEnd });
@@ -1383,27 +1535,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         playGentleBellChime();
         return {
           scheduledCount: newBlocks.length,
-          message: `${newBlocks.length} tarefa(s) distribuída(s) com sucesso nas áreas do dia!`,
+          message: `${newBlocks.length} tarefa(s) distribuída(s) por compatibilidade de energia!`,
         };
       }
 
       return {
         scheduledCount: 0,
-        message: 'Nenhuma tarefa elegível pôde ser encaixada nos horários livres das áreas.',
+        message: 'Nenhuma tarefa compatível pôde ser encaixada nos horários livres das áreas.',
       };
     },
     [getRoutineAreasForDay, getDayBoundsForDate, scheduledBlocks, tasks]
   );
 
-  // Task Actions
-  const addTask = useCallback((task: Omit<TaskItem, 'id'>): TaskItem => {
-    const newTask: TaskItem = {
-      ...task,
-      id: `tsk-${Date.now()}`,
-    };
-    setTasks((prev) => [newTask, ...prev]);
-    return newTask;
-  }, []);
+  // Task Actions (supports Google-Calendar-style recurrence expansion)
+  const addTask = useCallback(
+    (task: Omit<TaskItem, 'id'>, recurrence?: RecurrenceRule): TaskItem => {
+      const startDate = task.date || todayStr;
+      const dates =
+        recurrence && recurrence.frequency !== 'NONE'
+          ? expandRecurrenceDates(startDate, recurrence)
+          : [startDate];
+      const isRecurring = dates.length > 1 && recurrence && recurrence.frequency !== 'NONE';
+      const seriesId = isRecurring
+        ? task.recurringSeriesId ||
+          `tseries-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        : task.recurringSeriesId;
+
+      const baseTs = Date.now();
+      const createdTasks: TaskItem[] = dates.map((occDate, idx) => ({
+        ...task,
+        date: task.date || isRecurring ? occDate : undefined,
+        energyTier: normalizeEnergyTier(task.energyTier),
+        id: `tsk-${baseTs}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+        recurrence: recurrence && recurrence.frequency !== 'NONE' ? recurrence : undefined,
+        recurringSeriesId: seriesId,
+      }));
+
+      setTasks((prev) => [...createdTasks, ...prev]);
+      return createdTasks[0];
+    },
+    [todayStr]
+  );
 
   const updateTask = useCallback((id: string, updates: Partial<TaskItem>) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
@@ -1554,6 +1726,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       getRoutineAreasForDay,
       hideRoutineAreaForDate,
       restoreHiddenRoutineAreasForDate,
+      addDayRoutineArea,
+      updateDayRoutineArea,
+      deleteDayRoutineArea,
+      resetDayRoutineAreas,
       addRoutineBlock,
       updateRoutineBlock,
       deleteRoutineBlock,
@@ -1611,6 +1787,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       getRoutineAreasForDay,
       hideRoutineAreaForDate,
       restoreHiddenRoutineAreasForDate,
+      addDayRoutineArea,
+      updateDayRoutineArea,
+      deleteDayRoutineArea,
+      resetDayRoutineAreas,
       addRoutineBlock,
       updateRoutineBlock,
       deleteRoutineBlock,

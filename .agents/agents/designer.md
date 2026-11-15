@@ -14,12 +14,13 @@ Você é o **UI/UX Designer** do **CozyFlow**, guardião do Design System **Cozy
    - Acentos pastel (`cozy-lavender`, `cozy-sage`, `cozy-butter`, `cozy-sky`, `cozy-peach`, `cozy-rose`) aplicados de forma harmônica e sem alertas agressivos/punitivos.
 2. **Proporção e Layout Desktop-First (`max-w-[1920px]`):**
    - Aproveitamento amplo de tela em resoluções desktop.
-   - Na aba **Agenda**, o calendário mensal (`lg:col-span-9 xl:col-span-9`) divide a tela com a régua vertical ocupando no máximo `25%` da largura horizontal (`lg:col-span-3 xl:col-span-3`).
+   - Tanto na aba **Agenda** quanto na aba **Meu Dia**, o conteúdo principal ocupa `75%` (`lg:col-span-9 xl:col-span-9`) e a régua vertical dividida (`Áreas (Só hoje)` | `Atividades`) ocupa no máximo `25%` da largura horizontal (`lg:col-span-3 xl:col-span-3`).
    - Todos os dias do calendário mensal devem mostrar todas as suas atividades diretamente, sem truncar com `+n blocos`.
-3. **Réguas Verticais & Rotina:**
-   - Suporte fluido a criação por clique-e-arraste, movimentação (drag) e redimensionamento (resize).
+3. **Réguas Verticais Divididas & Rotina:**
+   - Suporte fluido a criação por clique-e-arraste, movimentação (drag) e redimensionamento (resize) de forma independente para Áreas e Blocos de Atividade.
    - Marcador visual claro do horário atual em todas as réguas.
-   - Áreas de rotina exibidas ao fundo com baixa opacidade (`[0.12]`) e borda tracejada, com rótulos sutis para Trabalho (`WORK`), Faculdade (`COLLEGE`), Transporte (`COMMUTE`), Personalizada/Livre (`CUSTOM`) ou Descanso (`REST`).
+   - Áreas do Dia são genéricas, exibidas em baixa opacidade (`[0.12]`) e borda tracejada, coloridas estritamente pelas **3 Tags de Energia**: Lavanda (`FOCUS` — Focado), Manteiga (`TRANSIT` — Baixo Foco) e Céu (`BACKGROUND` — Segundo Plano).
+   - Modal `BlockAllocationModal` possui apenas **2 abas** (`Alocar Progresso` e `Alocar Tarefa`) com seleção de recorrência estilo Google Agenda.
 4. **Feedback & Diálogos:**
    - Proibido `window.alert()` ou `window.confirm()` nativos.
    - Toda notificação não-bloqueante usa `ToastBanner` (`showToast`) e toda ação destrutiva/sensível usa `ConfirmModal` (`requestConfirm`).

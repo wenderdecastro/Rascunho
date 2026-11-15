@@ -4,16 +4,22 @@ import {
   EnergyTier,
   Obligation,
   Priority,
+  RecurrenceFrequency,
+  RecurrenceRule,
   ScheduledBlock,
   TaskItem,
   TaskSubItem,
 } from '../types';
-import { formatSecondsToHuman, timeStringToMinutes, formatDateBR } from '../utils/helpers';
+import {
+  formatSecondsToHuman,
+  timeStringToMinutes,
+  formatDateBR,
+  expandRecurrenceDates,
+} from '../utils/helpers';
 import {
   X,
   BarChart3,
   CheckSquare,
-  Clock,
   Plus,
   Trash2,
   ShieldAlert,
@@ -21,9 +27,8 @@ import {
   Layers,
   Check,
   Target,
-  Brain,
-  Headphones,
-  Wind,
+  Repeat,
+  Lock,
 } from 'lucide-react';
 
 interface BlockAllocationModalProps {
@@ -36,7 +41,27 @@ interface BlockAllocationModalProps {
   onClose: () => void;
 }
 
-type ModalTab = 'PROGRESS' | 'TASK' | 'TIME';
+type ModalTab = 'PROGRESS' | 'TASK';
+
+const WEEKDAY_LABELS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+
+const TIER_INFO: Record<EnergyTier, { label: string; icon: string; badgeCls: string }> = {
+  FOCUS: {
+    label: 'Focado',
+    icon: '🧠',
+    badgeCls: 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/30',
+  },
+  TRANSIT: {
+    label: 'Baixo Foco',
+    icon: '🎧',
+    badgeCls: 'bg-cozy-butter/15 text-cozy-butter border-cozy-butter/30',
+  },
+  BACKGROUND: {
+    label: 'Segundo Plano',
+    icon: '🫧',
+    badgeCls: 'bg-cozy-sky/15 text-cozy-sky border-cozy-sky/30',
+  },
+};
 
 export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
   isOpen,
@@ -50,6 +75,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
   const {
     progressBars,
     tasks,
+    getRoutineAreasForDay,
     addScheduledBlock,
     updateEffectiveBlock,
     deleteEffectiveBlock,
@@ -62,7 +88,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
     showToast,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<ModalTab>('TIME');
+  const [activeTab, setActiveTab] = useState<ModalTab>('PROGRESS');
   const [startTime, setStartTime] = useState(initialStartTime);
   const [endTime, setEndTime] = useState(initialEndTime);
   const [obligation, setObligation] = useState<Obligation>('FLEXIBLE');
@@ -81,30 +107,81 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
   // New task creation state
   const [newTaskTitle, setNewTaskTitle] = useState<string>('');
   const [newTaskPriority, setNewTaskPriority] = useState<Priority>('P2');
-  const [newTaskTier, setNewTaskTier] = useState<'FOCUS' | 'TRANSIT' | 'BACKGROUND'>('FOCUS');
+  const [newTaskTier, setNewTaskTier] = useState<EnergyTier>('FOCUS');
   const [newTaskSubitems, setNewTaskSubitems] = useState<TaskSubItem[]>([]);
   const [newTaskSubitemDraft, setNewTaskSubitemDraft] = useState<string>('');
-  const [newTaskEligibleWork, setNewTaskEligibleWork] = useState<boolean>(false);
-  const [newTaskEligibleCollege, setNewTaskEligibleCollege] = useState<boolean>(false);
-  const [newTaskEligibleCommute, setNewTaskEligibleCommute] = useState<boolean>(false);
 
-  // Tab 3: Tempo
-  const [timeBlockTitle, setTimeBlockTitle] = useState<string>('');
-  const [timeBlockTier, setTimeBlockTier] = useState<EnergyTier>('FOCUS');
+  // Google Calendar style Recurrence (when creating a new block)
+  const [recFrequency, setRecFrequency] = useState<RecurrenceFrequency>('NONE');
+  const [recInterval, setRecInterval] = useState<number>(1);
+  const [recDaysOfWeek, setRecDaysOfWeek] = useState<number[]>([]);
+  const [recEndType, setRecEndType] = useState<'NEVER' | 'ON_DATE' | 'AFTER_OCCURRENCES'>('NEVER');
+  const [recEndDate, setRecEndDate] = useState<string>('');
+  const [recOccurrences, setRecOccurrences] = useState<number>(8);
+
+  const overlappingArea = useMemo(() => {
+    const startMin = timeStringToMinutes(startTime);
+    const endMin = timeStringToMinutes(endTime);
+    if (endMin <= startMin) return null;
+    const dayOfWeek = new Date(`${date}T12:00:00`).getDay();
+    const areas = getRoutineAreasForDay(dayOfWeek, date);
+    return (
+      areas.find((area) => {
+        const aStart = timeStringToMinutes(area.startTime);
+        const aEnd = timeStringToMinutes(area.endTime);
+        return startMin < aEnd && endMin > aStart;
+      }) || null
+    );
+  }, [date, startTime, endTime, getRoutineAreasForDay]);
 
   const availableProgresses = useMemo(
-    () => progressBars.filter((p) => !p.isCompleted),
-    [progressBars]
+    () =>
+      progressBars.filter(
+        (p) =>
+          (!p.isCompleted && (!overlappingArea || p.energyTier === overlappingArea.tier)) ||
+          p.id === editingBlock?.linkedProgressId
+      ),
+    [progressBars, overlappingArea, editingBlock]
   );
 
   const sortedTasks = useMemo(
     () =>
-      [...tasks].sort((a, b) => {
-        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-        return PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
-      }),
-    [tasks]
+      [...tasks]
+        .filter(
+          (t) =>
+            !overlappingArea ||
+            t.energyTier === overlappingArea.tier ||
+            t.id === editingBlock?.linkedTaskId
+        )
+        .sort((a, b) => {
+          if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+          return PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
+        }),
+    [tasks, overlappingArea, editingBlock]
   );
+
+  const builtRecurrenceRule: RecurrenceRule | undefined = useMemo(() => {
+    if (recFrequency === 'NONE' || editingBlock) return undefined;
+    const defaultWeekday = new Date(`${date}T12:00:00`).getDay();
+    return {
+      frequency: recFrequency,
+      interval: Math.max(1, recInterval),
+      daysOfWeek:
+        recFrequency === 'WEEKLY' || recFrequency === 'CUSTOM'
+          ? recDaysOfWeek.length > 0
+            ? recDaysOfWeek
+            : [defaultWeekday]
+          : undefined,
+      endType: recEndType,
+      endDate: recEndType === 'ON_DATE' && recEndDate ? recEndDate : undefined,
+      occurrences: recEndType === 'AFTER_OCCURRENCES' ? Math.max(1, recOccurrences) : undefined,
+    };
+  }, [recFrequency, recInterval, recDaysOfWeek, recEndType, recEndDate, recOccurrences, editingBlock, date]);
+
+  const recurrencePreviewCount = useMemo(() => {
+    if (!builtRecurrenceRule) return 1;
+    return expandRecurrenceDates(date, builtRecurrenceRule).length;
+  }, [date, builtRecurrenceRule]);
 
   const selectedProgress = useMemo(
     () => progressBars.find((p) => p.id === selectedProgressId),
@@ -120,13 +197,26 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
+    const defaultWeekday = new Date(`${date}T12:00:00`).getDay();
+    setRecFrequency('NONE');
+    setRecInterval(1);
+    setRecDaysOfWeek([defaultWeekday]);
+    setRecEndType('NEVER');
+    setRecEndDate('');
+    setRecOccurrences(8);
+
     if (editingBlock) {
       setStartTime(editingBlock.startTime);
       setEndTime(editingBlock.endTime);
       setObligation(editingBlock.obligation);
       setLayer(editingBlock.layer === 1 ? 1 : 0);
 
-      if (editingBlock.linkedProgressId || editingBlock.allocationType === 'PROGRESS') {
+      if (editingBlock.linkedTaskId || editingBlock.allocationType === 'TASK') {
+        setActiveTab('TASK');
+        setTaskMode('EXISTING');
+        setSelectedTaskId(editingBlock.linkedTaskId || '');
+        setTaskBlockTitle(editingBlock.title);
+      } else {
         setActiveTab('PROGRESS');
         const progId = editingBlock.linkedProgressId || '';
         setSelectedProgressId(progId);
@@ -141,22 +231,13 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
             setDailyTargetInput(prog.dailyGoal ? String(prog.dailyGoal) : '');
           }
         }
-      } else if (editingBlock.linkedTaskId || editingBlock.allocationType === 'TASK') {
-        setActiveTab('TASK');
-        setTaskMode('EXISTING');
-        setSelectedTaskId(editingBlock.linkedTaskId || '');
-        setTaskBlockTitle(editingBlock.title);
-      } else {
-        setActiveTab('TIME');
-        setTimeBlockTitle(editingBlock.title);
-        setTimeBlockTier(editingBlock.tier);
       }
     } else {
       setStartTime(initialStartTime);
       setEndTime(initialEndTime);
       setObligation('FLEXIBLE');
       setLayer(0);
-      setActiveTab(initialTab || 'TIME');
+      setActiveTab(initialTab || 'PROGRESS');
 
       setSelectedProgressId('');
       setProgressBlockTitle('');
@@ -171,14 +252,8 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
       setNewTaskTier('FOCUS');
       setNewTaskSubitems([]);
       setNewTaskSubitemDraft('');
-      setNewTaskEligibleWork(false);
-      setNewTaskEligibleCollege(false);
-      setNewTaskEligibleCommute(false);
-
-      setTimeBlockTitle('');
-      setTimeBlockTier('FOCUS');
     }
-  }, [isOpen, editingBlock, initialStartTime, initialEndTime, initialTab]);
+  }, [isOpen, editingBlock, initialStartTime, initialEndTime, initialTab, date]);
 
   if (!isOpen) return null;
 
@@ -266,6 +341,13 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
         showToast('Selecione um progresso para alocar neste horário.', 'warning');
         return;
       }
+      if (overlappingArea && selectedProgress.energyTier !== overlappingArea.tier) {
+        showToast(
+          `Este horário está na área "${overlappingArea.title}" (${TIER_INFO[overlappingArea.tier].label}). Selecione um progresso compatível.`,
+          'warning'
+        );
+        return;
+      }
 
       // Persist adjusted daily target if user edited it
       const parsedVal = Number(dailyTargetInput);
@@ -300,7 +382,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
         linkedTaskId: undefined,
         color: selectedProgress.color,
       };
-    } else if (activeTab === 'TASK') {
+    } else {
       let targetTask: TaskItem | undefined;
       if (taskMode === 'NEW') {
         if (!newTaskTitle.trim()) {
@@ -308,22 +390,29 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
           return;
         }
         const durationMinutes = Math.max(15, endMin - startMin);
+        const effectiveNewTaskTier = overlappingArea ? overlappingArea.tier : newTaskTier;
         targetTask = addTask({
           title: newTaskTitle.trim(),
           priority: newTaskPriority,
           obligation,
-          energyTier: newTaskTier,
+          energyTier: effectiveNewTaskTier,
           isCompleted: false,
           durationMinutes,
-          date,
+          date: builtRecurrenceRule ? undefined : date,
+          recurrence: builtRecurrenceRule,
+          attachedAreaId: overlappingArea?.id,
           subitems: newTaskSubitems,
-          eligibleWork: newTaskEligibleWork,
-          eligibleCollege: newTaskEligibleCollege,
-          eligibleCommute: newTaskEligibleCommute,
         });
       } else {
         if (!selectedTask) {
           showToast('Selecione uma tarefa existente ou crie uma nova.', 'warning');
+          return;
+        }
+        if (overlappingArea && selectedTask.energyTier !== overlappingArea.tier) {
+          showToast(
+            `Esta tarefa não é compatível com a área "${overlappingArea.title}" (${TIER_INFO[overlappingArea.tier].label}).`,
+            'warning'
+          );
           return;
         }
         targetTask = selectedTask;
@@ -341,24 +430,6 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
         linkedTaskId: targetTask.id,
         linkedProgressId: undefined,
       };
-    } else {
-      // TIME allocation
-      if (!timeBlockTitle.trim()) {
-        showToast('Digite um título para o bloco de tempo.', 'warning');
-        return;
-      }
-      payload = {
-        date,
-        title: timeBlockTitle.trim(),
-        startTime,
-        endTime,
-        tier: timeBlockTier,
-        obligation,
-        layer,
-        allocationType: 'TIME',
-        linkedProgressId: undefined,
-        linkedTaskId: undefined,
-      };
     }
 
     if (!payload) return;
@@ -366,7 +437,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
     if (editingBlock) {
       updateEffectiveBlock(date, editingBlock, payload);
     } else {
-      addScheduledBlock(payload);
+      addScheduledBlock(payload, builtRecurrenceRule);
     }
     onClose();
   };
@@ -483,8 +554,36 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
             </div>
           </div>
 
-          {/* 3-Tab Switcher */}
-          <div className="grid grid-cols-3 gap-2 p-1.5 bg-cozy-bg rounded-2xl border border-cozy-border">
+          {/* Overlapping Área do Dia Indicator */}
+          {overlappingArea && (
+            <div className="p-3 rounded-2xl bg-cozy-lavender/10 border border-cozy-lavender/30 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs">
+                <Lock className="w-4 h-4 text-cozy-lavender shrink-0" />
+                <div>
+                  <span className="font-bold text-cozy-text">
+                    Horário dentro da área &ldquo;{overlappingArea.title}&rdquo;
+                  </span>
+                  <p className="text-[11px] text-cozy-subtext">
+                    Apenas progressos e tarefas compatíveis com{' '}
+                    <span className="font-bold text-cozy-lavender">
+                      {TIER_INFO[overlappingArea.tier].icon} {TIER_INFO[overlappingArea.tier].label}
+                    </span>{' '}
+                    podem ser alocados aqui.
+                  </p>
+                </div>
+              </div>
+              <span
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${
+                  TIER_INFO[overlappingArea.tier].badgeCls
+                }`}
+              >
+                {TIER_INFO[overlappingArea.tier].icon} {TIER_INFO[overlappingArea.tier].label}
+              </span>
+            </div>
+          )}
+
+          {/* 2-Tab Switcher */}
+          <div className="grid grid-cols-2 gap-2 p-1.5 bg-cozy-bg rounded-2xl border border-cozy-border">
             <button
               type="button"
               onClick={() => setActiveTab('PROGRESS')}
@@ -509,18 +608,6 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
               <CheckSquare className="w-4 h-4" />
               <span>Alocar Tarefa</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('TIME')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'TIME'
-                  ? 'bg-cozy-peach/20 text-cozy-peach border border-cozy-peach/40 shadow-sm'
-                  : 'text-cozy-subtext hover:text-cozy-text'
-              }`}
-            >
-              <Clock className="w-4 h-4" />
-              <span>Alocar Tempo</span>
-            </button>
           </div>
 
           {/* TAB 1: ALOCAR PROGRESSO */}
@@ -532,7 +619,9 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
                 </label>
                 {availableProgresses.length === 0 ? (
                   <div className="p-4 rounded-2xl bg-cozy-bg border border-cozy-border text-xs text-cozy-subtext text-center">
-                    Todos os progressos foram concluídos ou nenhum foi criado ainda.
+                    {overlappingArea
+                      ? `Nenhum progresso em aberto compatível com "${TIER_INFO[overlappingArea.tier].label}".`
+                      : 'Todos os progressos foram concluídos ou nenhum foi criado ainda.'}
                   </div>
                 ) : (
                   <select
@@ -662,6 +751,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
                           <option key={t.id} value={t.id}>
                             [{t.priority}] {t.isCompleted ? '✓ ' : ''}
                             {t.title} ({t.durationMinutes}m)
+                            {t.date ? ` • ${formatDateBR(t.date)}` : ''}
                           </option>
                         ))}
                       </select>
@@ -704,45 +794,32 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
 
                   {selectedTask && (
                     <div className="p-4 rounded-2xl bg-cozy-bg/80 border border-cozy-sky/30 space-y-3">
-                      {/* Elegibilidade da Tarefa Existente */}
+                      {/* Tag de Energia da Tarefa Existente */}
                       <div>
-                        <span className="text-[11px] font-bold text-cozy-subtext block mb-1">
-                          Elegibilidade para Áreas da Rotina:
+                        <span className="text-[11px] font-bold text-cozy-subtext block mb-1.5">
+                          Tag de Energia da Tarefa:
                         </span>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedTask.eligibleWork || false}
-                              onChange={(e) => updateTask(selectedTask.id, { eligibleWork: e.target.checked })}
-                              className="rounded border-cozy-border"
-                            />
-                            <span>💼 Trabalho</span>
-                          </label>
-                          <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedTask.eligibleCollege || false}
-                              onChange={(e) => updateTask(selectedTask.id, { eligibleCollege: e.target.checked })}
-                              className="rounded border-cozy-border"
-                            />
-                            <span>🎓 Faculdade</span>
-                          </label>
-                          <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedTask.eligibleCommute || false}
-                              onChange={(e) => updateTask(selectedTask.id, { eligibleCommute: e.target.checked })}
-                              className="rounded border-cozy-border"
-                            />
-                            <span>🚌 Transporte</span>
-                          </label>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {(['FOCUS', 'TRANSIT', 'BACKGROUND'] as EnergyTier[]).map((tierKey) => {
+                            const active = selectedTask.energyTier === tierKey;
+                            const blocked = Boolean(overlappingArea && overlappingArea.tier !== tierKey);
+                            return (
+                              <button
+                                key={tierKey}
+                                type="button"
+                                disabled={blocked}
+                                onClick={() => updateTask(selectedTask.id, { energyTier: tierKey })}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                                  active
+                                    ? TIER_INFO[tierKey].badgeCls
+                                    : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                                } ${blocked ? 'opacity-40 cursor-not-allowed' : ''}`}
+                              >
+                                {TIER_INFO[tierKey].icon} {TIER_INFO[tierKey].label}
+                              </button>
+                            );
+                          })}
                         </div>
-                        <p className="text-[10px] text-cozy-subtext mt-1">
-                          {!selectedTask.eligibleWork && !selectedTask.eligibleCollege && !selectedTask.eligibleCommute
-                            ? '🌿 Livre/Pessoal: só será distribuída automaticamente em blocos livres.'
-                            : 'Elegível para auto-distribuição nas áreas marcadas.'}
-                        </p>
                       </div>
 
                       <div className="flex items-center justify-between">
@@ -850,61 +927,19 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-cozy-subtext block mb-1">
-                        Tag de Foco
+                        Tag de Energia {overlappingArea ? '(Travada pela área)' : ''}
                       </label>
                       <select
-                        value={newTaskTier}
-                        onChange={(e) =>
-                          setNewTaskTier(e.target.value as 'FOCUS' | 'TRANSIT' | 'BACKGROUND')
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-cozy-card border border-cozy-border text-xs font-bold text-cozy-text"
+                        value={overlappingArea ? overlappingArea.tier : newTaskTier}
+                        disabled={Boolean(overlappingArea)}
+                        onChange={(e) => setNewTaskTier(e.target.value as EnergyTier)}
+                        className="w-full px-3 py-2 rounded-xl bg-cozy-card border border-cozy-border text-xs font-bold text-cozy-text disabled:opacity-75"
                       >
                         <option value="FOCUS">🧠 Focado</option>
                         <option value="TRANSIT">🎧 Baixo Foco</option>
                         <option value="BACKGROUND">🫧 Segundo Plano</option>
                       </select>
                     </div>
-                  </div>
-
-                  {/* Elegibilidade da Nova Tarefa */}
-                  <div className="p-3 rounded-xl bg-cozy-card border border-cozy-border space-y-1.5">
-                    <span className="text-[11px] font-bold text-cozy-subtext block">
-                      Elegibilidade para Áreas da Rotina:
-                    </span>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newTaskEligibleWork}
-                          onChange={(e) => setNewTaskEligibleWork(e.target.checked)}
-                          className="rounded border-cozy-border"
-                        />
-                        <span>💼 Trabalho</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newTaskEligibleCollege}
-                          onChange={(e) => setNewTaskEligibleCollege(e.target.checked)}
-                          className="rounded border-cozy-border"
-                        />
-                        <span>🎓 Faculdade</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newTaskEligibleCommute}
-                          onChange={(e) => setNewTaskEligibleCommute(e.target.checked)}
-                          className="rounded border-cozy-border"
-                        />
-                        <span>🚌 Transporte</span>
-                      </label>
-                    </div>
-                    <p className="text-[10px] text-cozy-subtext">
-                      {!newTaskEligibleWork && !newTaskEligibleCollege && !newTaskEligibleCommute
-                        ? '🌿 Sem marcações: só pode ser distribuída em blocos livres (fora de trabalho/faculdade).'
-                        : 'Elegível para auto-distribuição nas áreas correspondentes.'}
-                    </p>
                   </div>
 
                   {/* Subitems builder */}
@@ -957,70 +992,164 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: ALOCAR TEMPO */}
-          {activeTab === 'TIME' && (
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-cozy-subtext block mb-1.5">
-                  Título do Bloco de Tempo
-                </label>
-                <input
-                  type="text"
-                  value={timeBlockTitle}
-                  onChange={(e) => setTimeBlockTitle(e.target.value)}
-                  placeholder="Ex: Deep Work, Leitura, Reunião, Treino..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-cozy-bg border border-cozy-border text-sm text-cozy-text focus:outline-none focus:border-cozy-peach"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-cozy-subtext block mb-2">
-                  Tag do Bloco
-                </label>
-                <div className="grid grid-cols-3 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setTimeBlockTier('FOCUS')}
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      timeBlockTier === 'FOCUS'
-                        ? 'bg-cozy-lavender/15 border-cozy-lavender text-cozy-text shadow-sm'
-                        : 'bg-cozy-bg border-cozy-border text-cozy-subtext hover:text-cozy-text'
-                    }`}
-                  >
-                    <Brain className="w-4 h-4 text-cozy-lavender mb-1" />
-                    <div className="text-xs font-bold">Focado</div>
-                    <div className="text-[10px] text-cozy-subtext mt-0.5">Alta concentração</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTimeBlockTier('TRANSIT')}
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      timeBlockTier === 'TRANSIT'
-                        ? 'bg-cozy-butter/15 border-cozy-butter text-cozy-text shadow-sm'
-                        : 'bg-cozy-bg border-cozy-border text-cozy-subtext hover:text-cozy-text'
-                    }`}
-                  >
-                    <Headphones className="w-4 h-4 text-cozy-butter mb-1" />
-                    <div className="text-xs font-bold">Baixo Foco</div>
-                    <div className="text-[10px] text-cozy-subtext mt-0.5">Transporte / leve</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTimeBlockTier('BACKGROUND')}
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      timeBlockTier === 'BACKGROUND'
-                        ? 'bg-cozy-sky/15 border-cozy-sky text-cozy-text shadow-sm'
-                        : 'bg-cozy-bg border-cozy-border text-cozy-subtext hover:text-cozy-text'
-                    }`}
-                  >
-                    <Wind className="w-4 h-4 text-cozy-sky mb-1" />
-                    <div className="text-xs font-bold">Segundo Plano</div>
-                    <div className="text-[10px] text-cozy-subtext mt-0.5">Passivo / paralelo</div>
-                  </button>
+          {/* Google Calendar Style Recurrence (new blocks only) */}
+          {!editingBlock && (
+            <div className="p-4 rounded-2xl bg-cozy-bg/70 border border-cozy-border space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 text-xs font-bold text-cozy-text">
+                  <Repeat className="w-4 h-4 text-cozy-lavender" />
+                  <span>Repetição (Estilo Agenda)</span>
                 </div>
+                <select
+                  value={recFrequency}
+                  onChange={(e) => setRecFrequency(e.target.value as RecurrenceFrequency)}
+                  className="px-3 py-1.5 rounded-xl bg-cozy-card border border-cozy-border text-xs font-bold text-cozy-text focus:outline-none focus:border-cozy-lavender"
+                >
+                  <option value="NONE">Não se repete</option>
+                  <option value="DAILY">Diariamente</option>
+                  <option value="WEEKLY">Semanalmente</option>
+                  <option value="MONTHLY">Mensalmente</option>
+                  <option value="CUSTOM">Personalizada</option>
+                </select>
               </div>
+
+              {recFrequency !== 'NONE' && (
+                <div className="space-y-3 pt-2 border-t border-cozy-border/60">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-cozy-subtext font-semibold">Repetir a cada</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={recInterval}
+                      onChange={(e) => setRecInterval(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-16 px-2.5 py-1 rounded-xl bg-cozy-card border border-cozy-border text-xs font-bold text-cozy-text text-center"
+                    />
+                    <span className="text-xs text-cozy-subtext font-semibold">
+                      {recFrequency === 'DAILY'
+                        ? recInterval === 1
+                          ? 'dia'
+                          : 'dias'
+                        : recFrequency === 'MONTHLY'
+                          ? recInterval === 1
+                            ? 'mês'
+                            : 'meses'
+                          : recInterval === 1
+                            ? 'semana'
+                            : 'semanas'}
+                    </span>
+                  </div>
+
+                  {(recFrequency === 'WEEKLY' || recFrequency === 'CUSTOM') && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-bold text-cozy-subtext block">
+                        Dias da semana:
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {WEEKDAY_LABELS.map((lbl, idx) => {
+                          const selected = recDaysOfWeek.includes(idx);
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() =>
+                                setRecDaysOfWeek((prev) =>
+                                  prev.includes(idx)
+                                    ? prev.length > 1
+                                      ? prev.filter((d) => d !== idx)
+                                      : prev
+                                    : [...prev, idx]
+                                )
+                              }
+                              className={`w-8 h-8 rounded-full text-xs font-extrabold border transition-all ${
+                                selected
+                                  ? 'bg-cozy-lavender text-cozy-bg border-cozy-lavender shadow-sm'
+                                  : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                              }`}
+                            >
+                              {lbl}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-bold text-cozy-subtext block">Termina:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRecEndType('NEVER')}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold text-left ${
+                          recEndType === 'NEVER'
+                            ? 'bg-cozy-lavender/15 border-cozy-lavender text-cozy-lavender'
+                            : 'bg-cozy-card border-cozy-border text-cozy-subtext'
+                        }`}
+                      >
+                        Nunca (até 8 sem.)
+                      </button>
+
+                      <div
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border ${
+                          recEndType === 'ON_DATE'
+                            ? 'bg-cozy-lavender/15 border-cozy-lavender'
+                            : 'bg-cozy-card border-cozy-border'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={recEndType === 'ON_DATE'}
+                          onChange={() => setRecEndType('ON_DATE')}
+                        />
+                        <input
+                          type="date"
+                          value={recEndDate}
+                          onFocus={() => setRecEndType('ON_DATE')}
+                          onChange={(e) => {
+                            setRecEndType('ON_DATE');
+                            setRecEndDate(e.target.value);
+                          }}
+                          className="w-full bg-transparent text-[11px] font-bold text-cozy-text focus:outline-none"
+                        />
+                      </div>
+
+                      <div
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border ${
+                          recEndType === 'AFTER_OCCURRENCES'
+                            ? 'bg-cozy-lavender/15 border-cozy-lavender'
+                            : 'bg-cozy-card border-cozy-border'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={recEndType === 'AFTER_OCCURRENCES'}
+                          onChange={() => setRecEndType('AFTER_OCCURRENCES')}
+                        />
+                        <span className="text-[11px] text-cozy-subtext">Após</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={recOccurrences}
+                          onFocus={() => setRecEndType('AFTER_OCCURRENCES')}
+                          onChange={(e) => {
+                            setRecEndType('AFTER_OCCURRENCES');
+                            setRecOccurrences(Math.max(1, Number(e.target.value) || 1));
+                          }}
+                          className="w-12 bg-cozy-bg border border-cozy-border rounded-lg px-1.5 py-0.5 text-xs font-bold text-cozy-text text-center"
+                        />
+                        <span className="text-[11px] text-cozy-subtext">x</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-cozy-lavender font-semibold">
+                    Serão criados {recurrencePreviewCount} bloco(s) na agenda a partir de{' '}
+                    {formatDateBR(date)}.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

@@ -12,12 +12,13 @@ Você é o **Product Analyst (PA)** do aplicativo **CozyFlow**, responsável pel
 1. **Capacidade Real & Burnout Forecast (`calculateRealCapacity`, `getDayBurnoutForecast`):**
    - Devem considerar `dayHoursConfigs` configurados para cada dia da semana (`0` = Domingo a `6` = Sábado).
    - Intervalos ocupados na régua devem passar por `mergeIntervals` para evitar contagem duplicada em blocos empilhados.
-   - Áreas/blocos do tipo `REST` (Descanso) não devem inflar carga ou causar falso alerta de sobrecarga.
    - Tarefas soltas que já estão vinculadas a um bloco agendado naquela data não podem ser contadas duas vezes na carga diária.
-2. **Áreas da Rotina e Elegibilidade de Tarefas:**
-   - Tipos de área suportados (`RoutineAreaType`): `WORK`, `COLLEGE`, `COMMUTE`, `CUSTOM` (além de `EnergyTier`: `FOCUS`, `TRANSIT`, `BACKGROUND`, `REST`).
-   - Elegibilidade por checkbox (`TaskItem`): `eligibleWork`, `eligibleCollege`, `eligibleCommute`.
-   - **Regra estrita de Auto-Distribuição (`autoDistributeTasksForDate`):** Tarefas **sem nenhum checkbox marcado** só podem ser alocadas automaticamente em blocos/janelas livres que **não** pertençam às áreas `WORK` (Trabalho) nem `COLLEGE` (Faculdade).
+2. **Áreas Genéricas da Rotina, Overrides Diários & 3 Tags de Energia:**
+   - Existem **estritamente 3 Tags de Energia (`EnergyTier`)**: `FOCUS` (`Focado`), `TRANSIT` (`Baixo Foco`) e `BACKGROUND` (`Segundo Plano`). Não existe 4ª tag (`REST`).
+   - Áreas do Dia são genéricas (nome livre + `tier: EnergyTier` + `obligation: 'MANDATORY' | 'FLEXIBLE'`), separadas dos Blocos de Atividade (`allocationType: 'PROGRESS' | 'TASK'`).
+   - **Compatibilidade & Auto-Distribuição (`autoDistributeTasksForDate` / `autoFillBlock` / `BlockAllocationModal`):** Progressos e Tarefas são compatíveis com uma Área do Dia exclusivamente pela **igualdade de `EnergyTier`**. Na aba **Rotina** não são criados Blocos de Atividade, apenas Áreas do Dia e Tarefas compatíveis.
+   - **Isolamento Diário:** Edições na coluna de Áreas em **Meu Dia** ou **Agenda** gravam apenas em `dayOverrides[dateStr].customRoutineAreas`, preservando a rotina semanal base e todos os demais dias.
+   - **Recorrência (`RecurrenceRule` / `expandRecurrenceDates`):** Suporte a `NONE`, `DAILY`, `WEEKLY` (com dias `0..6`), `MONTHLY` e `CUSTOM`, com término `NEVER` (horizonte até 56 dias), `ON_DATE` ou `AFTER_OCCURRENCES`.
 3. **Progressos & Subprogressos:**
    - Progressos `TIME` suportam meta total, ciclo (`dias × horas/dia`) ou modo ilimitado (`isUnlimited: true`) com meta diária opcional.
    - Subprogressos (`parentId`) herdam a categoria (`type`) do progresso pai e propagam incremento/dedução de segundos ao pai (incluindo em `resetProgress`).
