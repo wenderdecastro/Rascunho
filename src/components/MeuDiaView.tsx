@@ -25,6 +25,8 @@ import {
   Wand2,
   Trash2,
   Edit2,
+  Calendar as CalendarIcon,
+  Clock,
 } from 'lucide-react';
 
 export const MeuDiaView: React.FC = () => {
@@ -35,6 +37,7 @@ export const MeuDiaView: React.FC = () => {
     resumeFromPause,
     resetProgress,
     tasks,
+    scheduledBlocks,
     dayOverrides,
     triggerSOS,
     undoSOS,
@@ -49,6 +52,8 @@ export const MeuDiaView: React.FC = () => {
     deleteTask,
     deleteEffectiveBlock,
     autoDistributeTasksForDate,
+    setSelectedDate,
+    setActiveTab,
     requestConfirm,
     showToast,
   } = useApp();
@@ -95,6 +100,118 @@ export const MeuDiaView: React.FC = () => {
   const activeTask = activeBlock?.linkedTaskId
     ? tasks.find((t) => t.id === activeBlock.linkedTaskId)
     : undefined;
+
+  const upcomingNonRecurringEvents = useMemo(() => {
+    const nowMin = timeStringToMinutes(currentTimeStr);
+    const todayNoonMs = new Date(`${todayStr}T12:00:00`).getTime();
+    const linkedBlockTaskKeys = new Set<string>();
+
+    interface CountdownEventItem {
+      id: string;
+      title: string;
+      date: string;
+      startTime?: string;
+      endTime?: string;
+      tier: ScheduledBlock['tier'];
+      countdownLabel: string;
+      countdownKind: 'TODAY_UNTIMED' | 'TODAY_HOURS' | 'TODAY_ACTIVE' | 'DAYS';
+      sourceLabel: 'Bloco' | 'Tarefa';
+    }
+
+    const items: CountdownEventItem[] = [];
+
+    scheduledBlocks.forEach((b) => {
+      if (b.isCancelledToday || b.date < todayStr) return;
+      const isRecurring = Boolean(
+        b.recurringSeriesId || (b.recurrence && b.recurrence.frequency !== 'NONE')
+      );
+      if (isRecurring) return;
+      if (b.linkedTaskId) {
+        const linked = tasks.find((t) => t.id === b.linkedTaskId);
+        if (linked?.isCompleted) return;
+        linkedBlockTaskKeys.add(`${b.date}::${b.linkedTaskId}`);
+      }
+      if (b.isCompleted) return;
+
+      const hasTime = Boolean(b.startTime);
+      let countdownLabel = 'É hoje';
+      let countdownKind: CountdownEventItem['countdownKind'] = 'TODAY_UNTIMED';
+
+      if (b.date > todayStr) {
+        const targetNoonMs = new Date(`${b.date}T12:00:00`).getTime();
+        const diffDays = Math.round((targetNoonMs - todayNoonMs) / (24 * 60 * 60 * 1000));
+        countdownLabel = diffDays === 1 ? 'Falta 1 dia' : `Faltam ${diffDays} dias`;
+        countdownKind = 'DAYS';
+      } else if (hasTime) {
+        const sMin = timeStringToMinutes(b.startTime);
+        const eMin = b.endTime ? timeStringToMinutes(b.endTime) : sMin + 60;
+        if (nowMin >= eMin) return; // Event today already finished
+        if (nowMin >= sMin) {
+          countdownLabel = 'Agora';
+          countdownKind = 'TODAY_ACTIVE';
+        } else {
+          const diffMin = sMin - nowMin;
+          const hrs = Math.floor(diffMin / 60);
+          const mins = diffMin % 60;
+          if (hrs === 0) {
+            countdownLabel = `Faltam ${mins} min (< 1h)`;
+          } else if (mins === 0) {
+            countdownLabel = hrs === 1 ? 'Falta 1 hora' : `Faltam ${hrs} horas`;
+          } else {
+            countdownLabel = hrs === 1 ? `Falta 1h ${mins}min` : `Faltam ${hrs}h ${mins}min`;
+          }
+          countdownKind = 'TODAY_HOURS';
+        }
+      }
+
+      items.push({
+        id: `blk-${b.id}`,
+        title: b.title,
+        date: b.date,
+        startTime: b.startTime || undefined,
+        endTime: b.endTime || undefined,
+        tier: b.tier,
+        countdownLabel,
+        countdownKind,
+        sourceLabel: 'Bloco',
+      });
+    });
+
+    tasks.forEach((t) => {
+      if (t.isCompleted || !t.date || t.date < todayStr) return;
+      const isRecurring = Boolean(
+        t.recurringSeriesId || (t.recurrence && t.recurrence.frequency !== 'NONE')
+      );
+      if (isRecurring) return;
+      if (linkedBlockTaskKeys.has(`${t.date}::${t.id}`)) return;
+
+      let countdownLabel = 'É hoje';
+      let countdownKind: CountdownEventItem['countdownKind'] = 'TODAY_UNTIMED';
+      if (t.date > todayStr) {
+        const targetNoonMs = new Date(`${t.date}T12:00:00`).getTime();
+        const diffDays = Math.round((targetNoonMs - todayNoonMs) / (24 * 60 * 60 * 1000));
+        countdownLabel = diffDays === 1 ? 'Falta 1 dia' : `Faltam ${diffDays} dias`;
+        countdownKind = 'DAYS';
+      }
+
+      items.push({
+        id: `tsk-${t.id}`,
+        title: t.title,
+        date: t.date,
+        tier: t.energyTier,
+        countdownLabel,
+        countdownKind,
+        sourceLabel: 'Tarefa',
+      });
+    });
+
+    return items.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      const aMin = a.startTime ? timeStringToMinutes(a.startTime) : 24 * 60 + 1;
+      const bMin = b.startTime ? timeStringToMinutes(b.startTime) : 24 * 60 + 1;
+      return aMin - bMin;
+    });
+  }, [scheduledBlocks, tasks, todayStr, currentTimeStr]);
 
   const handleOpenNightCheckout = () => {
     setDiscardTaskIds([]);
@@ -301,10 +418,12 @@ export const MeuDiaView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Screen Layout: Left 75% (Atividade Atual + Tarefas do Dia) + Right 25% Interactive Vertical Ruler */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Columns (75%) */}
-        <div className="lg:col-span-9 xl:col-span-9 grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+      {/* Main Screen Layout: Left 60% (Atividade Atual + Eventos Não Recorrentes + Tarefas) + Right 40% Interactive Ruler */}
+      <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start">
+        {/* Left Columns (60%) */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+          {/* Subcolumn 1: ATIVIDADE ATUAL + EVENTOS NÃO RECORRENTES */}
+          <div className="space-y-6">
           {/* ATIVIDADE ATUAL */}
           <div className="bg-cozy-card rounded-3xl p-6 border border-cozy-border shadow-cozy space-y-5">
             <div className="flex items-center justify-between gap-2">
@@ -558,6 +677,78 @@ export const MeuDiaView: React.FC = () => {
             )}
           </div>
 
+          {/* EVENTOS NÃO RECORRENTES DA AGENDA */}
+          <div className="bg-cozy-card rounded-3xl p-5 border border-cozy-border shadow-cozy space-y-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <CalendarIcon className="w-4 h-4 text-cozy-lavender shrink-0" />
+                <h3 className="text-sm font-extrabold text-cozy-text whitespace-normal break-words leading-tight">
+                  Eventos Não Recorrentes da Agenda
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cozy-bg border border-cozy-border text-cozy-subtext shrink-0">
+                {upcomingNonRecurringEvents.length}
+              </span>
+            </div>
+
+            {upcomingNonRecurringEvents.length === 0 ? (
+              <div className="p-4 rounded-2xl bg-cozy-bg border border-dashed border-cozy-border text-center text-xs text-cozy-subtext leading-relaxed">
+                Nenhum evento pontual (não recorrente) agendado a partir de hoje.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                {upcomingNonRecurringEvents.map((ev) => {
+                  const badgeCls =
+                    ev.countdownKind === 'TODAY_ACTIVE'
+                      ? 'bg-cozy-sage/20 text-cozy-sage border-cozy-sage/40'
+                      : ev.countdownKind === 'TODAY_HOURS'
+                        ? 'bg-cozy-peach/20 text-cozy-peach border-cozy-peach/40'
+                        : ev.countdownKind === 'TODAY_UNTIMED'
+                          ? 'bg-cozy-butter/20 text-cozy-butter border-cozy-butter/40'
+                          : 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/35';
+
+                  return (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(ev.date);
+                        setActiveTab('AGENDA');
+                      }}
+                      title="Abrir esta data na Agenda"
+                      className="w-full text-left p-3 rounded-2xl bg-cozy-bg border border-cozy-border hover:border-cozy-lavender/50 transition-colors flex items-start justify-between gap-2.5"
+                    >
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="text-xs font-extrabold text-cozy-text whitespace-normal break-words leading-snug">
+                          {ev.title}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono text-cozy-subtext">
+                          <span>{formatDateBR(ev.date)}</span>
+                          {ev.startTime ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5" />
+                              {ev.startTime}
+                              {ev.endTime ? `–${ev.endTime}` : ''}
+                            </span>
+                          ) : (
+                            <span className="italic opacity-80">Sem horário específico</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <span
+                        className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border shrink-0 whitespace-nowrap ${badgeCls}`}
+                      >
+                        {ev.countdownLabel}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          </div>
+
           {/* TAREFAS DO DIA PANEL (Gerenciamento rápido, tags de energia e exclusão) */}
           <div className="bg-cozy-card rounded-3xl p-5 border border-cozy-border shadow-cozy space-y-3.5">
             <div className="flex items-center justify-between gap-2">
@@ -726,8 +917,8 @@ export const MeuDiaView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column (25%): INTERACTIVE 2-SIDE VERTICAL RULER FOR TODAY */}
-        <div className="lg:col-span-3 xl:col-span-3">
+        {/* Right Column (40%): INTERACTIVE 2-SIDE VERTICAL RULER FOR TODAY */}
+        <div>
           <InteractiveVerticalRuler
             dateStr={todayStr}
             onSelectBlock={handleSelectBlock}
@@ -815,7 +1006,7 @@ export const MeuDiaView: React.FC = () => {
                         key={task.id}
                         className="p-3 rounded-2xl bg-cozy-bg border border-cozy-border flex items-center justify-between gap-2"
                       >
-                        <span className="text-xs font-medium truncate max-w-[200px]">
+                        <span className="text-xs font-medium whitespace-normal break-words leading-snug min-w-0 flex-1">
                           {task.title}
                         </span>
 

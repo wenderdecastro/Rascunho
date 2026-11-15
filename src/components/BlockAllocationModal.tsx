@@ -29,6 +29,7 @@ import {
   Target,
   Repeat,
   Lock,
+  Clock,
 } from 'lucide-react';
 
 interface BlockAllocationModalProps {
@@ -89,6 +90,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<ModalTab>('PROGRESS');
+  const [hasSpecificTime, setHasSpecificTime] = useState<boolean>(true);
   const [startTime, setStartTime] = useState(initialStartTime);
   const [endTime, setEndTime] = useState(initialEndTime);
   const [obligation, setObligation] = useState<Obligation>('FLEXIBLE');
@@ -120,6 +122,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
   const [recOccurrences, setRecOccurrences] = useState<number>(8);
 
   const overlappingArea = useMemo(() => {
+    if (!hasSpecificTime) return null;
     const startMin = timeStringToMinutes(startTime);
     const endMin = timeStringToMinutes(endTime);
     if (endMin <= startMin) return null;
@@ -132,7 +135,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
         return startMin < aEnd && endMin > aStart;
       }) || null
     );
-  }, [date, startTime, endTime, getRoutineAreasForDay]);
+  }, [date, startTime, endTime, hasSpecificTime, getRoutineAreasForDay]);
 
   const availableProgresses = useMemo(
     () =>
@@ -206,8 +209,10 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
     setRecOccurrences(8);
 
     if (editingBlock) {
-      setStartTime(editingBlock.startTime);
-      setEndTime(editingBlock.endTime);
+      const blockHasTime = Boolean(editingBlock.startTime && editingBlock.endTime);
+      setHasSpecificTime(blockHasTime);
+      setStartTime(editingBlock.startTime || initialStartTime || '09:00');
+      setEndTime(editingBlock.endTime || initialEndTime || '10:00');
       setObligation(editingBlock.obligation);
       setLayer(editingBlock.layer === 1 ? 1 : 0);
 
@@ -233,6 +238,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
         }
       }
     } else {
+      setHasSpecificTime(true);
       setStartTime(initialStartTime);
       setEndTime(initialEndTime);
       setObligation('FLEXIBLE');
@@ -329,7 +335,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
     e.preventDefault();
     const startMin = timeStringToMinutes(startTime);
     const endMin = timeStringToMinutes(endTime);
-    if (endMin <= startMin) {
+    if (hasSpecificTime && endMin <= startMin) {
       showToast('O horário de término precisa ser posterior ao horário de início.', 'warning');
       return;
     }
@@ -372,8 +378,8 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
       payload = {
         date,
         title: progressBlockTitle.trim() || selectedProgress.title,
-        startTime,
-        endTime,
+        startTime: hasSpecificTime ? startTime : '',
+        endTime: hasSpecificTime ? endTime : '',
         tier: selectedProgress.energyTier,
         obligation,
         layer,
@@ -389,7 +395,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
           showToast('Digite o título da nova tarefa.', 'warning');
           return;
         }
-        const durationMinutes = Math.max(15, endMin - startMin);
+        const durationMinutes = hasSpecificTime ? Math.max(15, endMin - startMin) : 45;
         const effectiveNewTaskTier = overlappingArea ? overlappingArea.tier : newTaskTier;
         targetTask = addTask({
           title: newTaskTitle.trim(),
@@ -421,8 +427,8 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
       payload = {
         date,
         title: taskBlockTitle.trim() || targetTask.title,
-        startTime,
-        endTime,
+        startTime: hasSpecificTime ? startTime : '',
+        endTime: hasSpecificTime ? endTime : '',
         tier: targetTask.energyTier,
         obligation,
         layer,
@@ -444,9 +450,12 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
 
   const handleDelete = () => {
     if (!editingBlock) return;
+    const rangeLabel = editingBlock.startTime
+      ? `(${editingBlock.startTime} - ${editingBlock.endTime})`
+      : '(sem horário definido)';
     requestConfirm(
       'Remover bloco do dia',
-      `Deseja remover "${editingBlock.title}" (${editingBlock.startTime} - ${editingBlock.endTime}) apenas deste dia? Se veio da rotina semanal, a sua rotina base continuará intacta.`,
+      `Deseja remover "${editingBlock.title}" ${rangeLabel} apenas deste dia? Se veio da rotina semanal, a sua rotina base continuará intacta.`,
       () => {
         deleteEffectiveBlock(date, editingBlock);
         onClose();
@@ -454,7 +463,9 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
     );
   };
 
-  const durationMins = Math.max(0, timeStringToMinutes(endTime) - timeStringToMinutes(startTime));
+  const durationMins = hasSpecificTime
+    ? Math.max(0, timeStringToMinutes(endTime) - timeStringToMinutes(startTime))
+    : 0;
 
   return (
     <div
@@ -493,64 +504,94 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
 
         <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-5">
           {/* Shared Time / Obligation / Layer Row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-cozy-bg/70 p-3.5 rounded-2xl border border-cozy-border">
-            <div>
-              <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
-                Início
-              </label>
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-cozy-card border border-cozy-border text-sm font-bold text-cozy-text focus:outline-none focus:border-cozy-lavender"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
-                Término ({durationMins}m)
-              </label>
-              <input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-cozy-card border border-cozy-border text-sm font-bold text-cozy-text focus:outline-none focus:border-cozy-lavender"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
-                Obrigatoriedade
-              </label>
+          <div className="bg-cozy-bg/70 p-3.5 rounded-2xl border border-cozy-border space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[11px] font-bold text-cozy-subtext uppercase flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-cozy-lavender" />
+                Horário do Evento
+              </span>
               <button
                 type="button"
-                onClick={() =>
-                  setObligation((prev) => (prev === 'MANDATORY' ? 'FLEXIBLE' : 'MANDATORY'))
-                }
-                className={`w-full px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
-                  obligation === 'MANDATORY'
-                    ? 'bg-cozy-rose/20 text-cozy-rose border-cozy-rose/40'
-                    : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                onClick={() => setHasSpecificTime((prev) => !prev)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                  hasSpecificTime
+                    ? 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/40 hover:bg-cozy-lavender/25'
+                    : 'bg-cozy-sky/20 text-cozy-sky border-cozy-sky/40 hover:bg-cozy-sky/30'
                 }`}
               >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                {obligation === 'MANDATORY' ? 'Obrigatório' : 'Flexível'}
+                {hasSpecificTime
+                  ? '🕒 Com horário definido'
+                  : '📅 Sem horário específico (só a data)'}
               </button>
             </div>
-            <div>
-              <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
-                Empilhamento
-              </label>
-              <button
-                type="button"
-                onClick={() => setLayer((prev) => (prev === 0 ? 1 : 0))}
-                className={`w-full px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
-                  layer === 1
-                    ? 'bg-cozy-lavender/20 text-cozy-lavender border-cozy-lavender/40'
-                    : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                {layer === 1 ? 'Sobreposto (2ª)' : 'Base (Principal)'}
-              </button>
+
+            {!hasSpecificTime && (
+              <div className="p-2.5 rounded-xl bg-cozy-sky/10 border border-dashed border-cozy-sky/35 text-xs text-cozy-sky font-medium leading-relaxed">
+                Evento sem horário especificado — ficará visível no calendário e exibirá &ldquo;É hoje&rdquo; no Meu Dia na data marcada.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
+                  Início
+                </label>
+                <input
+                  type="time"
+                  disabled={!hasSpecificTime}
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-cozy-card border border-cozy-border text-sm font-bold text-cozy-text focus:outline-none focus:border-cozy-lavender disabled:opacity-40"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
+                  Término {hasSpecificTime ? `(${durationMins}m)` : '(Sem hora)'}
+                </label>
+                <input
+                  type="time"
+                  disabled={!hasSpecificTime}
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-cozy-card border border-cozy-border text-sm font-bold text-cozy-text focus:outline-none focus:border-cozy-lavender disabled:opacity-40"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
+                  Obrigatoriedade
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setObligation((prev) => (prev === 'MANDATORY' ? 'FLEXIBLE' : 'MANDATORY'))
+                  }
+                  className={`w-full px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                    obligation === 'MANDATORY'
+                      ? 'bg-cozy-rose/20 text-cozy-rose border-cozy-rose/40'
+                      : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  {obligation === 'MANDATORY' ? 'Obrigatório' : 'Flexível'}
+                </button>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-cozy-subtext uppercase block mb-1">
+                  Empilhamento
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setLayer((prev) => (prev === 0 ? 1 : 0))}
+                  className={`w-full px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                    layer === 1
+                      ? 'bg-cozy-lavender/20 text-cozy-lavender border-cozy-lavender/40'
+                      : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  {layer === 1 ? 'Sobreposto (2ª)' : 'Base (Principal)'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -848,7 +889,7 @@ export const BlockAllocationModal: React.FC<BlockAllocationModalProps> = ({
                                 {sub.isCompleted && <Check className="w-3 h-3 stroke-[3]" />}
                               </span>
                               <span
-                                className={`truncate ${
+                                className={`whitespace-normal break-words leading-snug ${
                                   sub.isCompleted
                                     ? 'line-through text-cozy-subtext'
                                     : 'text-cozy-text font-medium'

@@ -25,6 +25,8 @@ import {
   Brain,
   Headphones,
   Wind,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 interface InteractiveVerticalRulerProps {
@@ -35,6 +37,7 @@ interface InteractiveVerticalRulerProps {
   title?: string;
   subtitle?: string;
   headerRight?: React.ReactNode;
+  allowAreaAdjustment?: boolean;
 }
 
 interface BlockDragState {
@@ -116,6 +119,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
   title,
   subtitle,
   headerRight,
+  allowAreaAdjustment = true,
 }) => {
   const {
     currentTimeStr,
@@ -142,6 +146,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
   const [blockDrag, setBlockDrag] = useState<BlockDragState | null>(null);
   const [areaDrag, setAreaDrag] = useState<AreaDragState | null>(null);
   const [createDrag, setCreateDrag] = useState<CreateDragState | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Day-only Routine Area modal state
   const [areaModalOpen, setAreaModalOpen] = useState(false);
@@ -171,13 +176,21 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
     () => getEffectiveBlocksForDate(dateStr),
     [getEffectiveBlocksForDate, dateStr]
   );
+  const timedBlocks = useMemo(
+    () => blocks.filter((b) => Boolean(b.startTime && b.endTime)),
+    [blocks]
+  );
+  const untimedBlocks = useMemo(
+    () => blocks.filter((b) => !b.startTime || !b.endTime),
+    [blocks]
+  );
   const dayBounds = useMemo(() => getDayBoundsForDate(dateStr), [getDayBoundsForDate, dateStr]);
 
   // Expand hour window cleanly to always show all areas, blocks, and current time indicator
   const { startHour, endHour } = useMemo(() => {
     let minH = dayBounds.startHour;
     let maxH = dayBounds.endHour;
-    blocks.forEach((b) => {
+    timedBlocks.forEach((b) => {
       minH = Math.min(minH, Math.floor(timeStringToMinutes(b.startTime) / 60));
       maxH = Math.max(maxH, Math.ceil(timeStringToMinutes(b.endTime) / 60));
     });
@@ -194,7 +207,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
       startHour: Math.max(0, minH),
       endHour: Math.min(24, Math.max(minH + 1, maxH)),
     };
-  }, [dayBounds, blocks, routineAreas, isToday, nowMinutes]);
+  }, [dayBounds, timedBlocks, routineAreas, isToday, nowMinutes]);
 
   const hoursList = useMemo(
     () => Array.from({ length: endHour - startHour }, (_, idx) => startHour + idx),
@@ -272,7 +285,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
               : timeStringToMinutes(a.endTime),
           };
         },
-        84
+        92
       ),
     [routineAreas, areaDrag]
   );
@@ -280,7 +293,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
   const blockOverlapLayout = useMemo(
     () =>
       computeOverlapLayout(
-        blocks,
+        timedBlocks,
         (b) => {
           const isDraggingThis = blockDrag?.block.id === b.id;
           return {
@@ -292,9 +305,9 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
               : timeStringToMinutes(b.endTime),
           };
         },
-        84
+        92
       ),
-    [blocks, blockDrag]
+    [timedBlocks, blockDrag]
   );
 
   const clientYToSnappedMinutes = (clientY: number, mode: 'ANCHOR' | 'CURSOR' = 'ANCHOR') => {
@@ -524,27 +537,53 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
     <div className="bg-cozy-card border border-cozy-border rounded-3xl shadow-cozy overflow-hidden flex flex-col">
       {(title || subtitle || headerRight) && (
         <div className="px-4 py-3.5 border-b border-cozy-border flex flex-wrap items-center justify-between gap-2 bg-cozy-bg/40">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             {title && (
-              <h3 className="text-sm font-extrabold text-cozy-text flex items-center gap-1.5 truncate">
-                <Clock className="w-4 h-4 text-cozy-peach shrink-0" />
-                <span className="truncate">{title}</span>
+              <h3 className="text-sm font-extrabold text-cozy-text flex items-start gap-1.5 whitespace-normal break-words leading-tight">
+                <Clock className="w-4 h-4 text-cozy-peach shrink-0 mt-0.5" />
+                <span className="whitespace-normal break-words">{title}</span>
               </h3>
             )}
-            {subtitle && <p className="text-[11px] text-cozy-subtext mt-0.5 truncate">{subtitle}</p>}
+            {subtitle && (
+              <p className="text-[11px] text-cozy-subtext mt-0.5 whitespace-normal break-words leading-snug">
+                {subtitle}
+              </p>
+            )}
           </div>
           {headerRight && <div className="flex items-center gap-1.5 shrink-0">{headerRight}</div>}
         </div>
       )}
 
-      {/* Compact info & Restore default routine areas for this date */}
+      {/* Compact info, Overlap Expansion toggle & Conditional Area Restore */}
       <div className="px-3.5 py-2 bg-cozy-bg/30 border-b border-cozy-border/60 flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-cozy-subtext">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-cozy-lavender shrink-0" />
-          <span>Esq: Áreas do dia • Dir: Atividades</span>
+          <span>
+            {allowAreaAdjustment
+              ? 'Esq: Áreas do dia • Dir: Atividades'
+              : 'Áreas no fundo • Clique/arraste para blocos'}
+          </span>
         </span>
-        <div className="flex items-center gap-1.5 ml-auto">
-          {hasDayAreaOverride && (
+        <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsExpanded((prev) => !prev)}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold transition-colors ${
+              isExpanded
+                ? 'bg-cozy-peach/20 text-cozy-peach border-cozy-peach/40'
+                : 'bg-cozy-bg text-cozy-subtext border-cozy-border hover:text-cozy-text'
+            }`}
+            title={
+              isExpanded
+                ? 'Voltar ao modo sobreposto com blur'
+                : 'Expandir itens sobrepostos lado a lado'
+            }
+          >
+            {isExpanded ? <Minimize2 className="w-2.5 h-2.5" /> : <Maximize2 className="w-2.5 h-2.5" />}
+            <span>{isExpanded ? 'Sobrepor c/ Blur' : 'Expandir Lado a Lado'}</span>
+          </button>
+
+          {allowAreaAdjustment && hasDayAreaOverride && (
             <button
               type="button"
               onClick={() => resetDayRoutineAreas(dateStr)}
@@ -563,22 +602,69 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
         </div>
       </div>
 
-      {/* 2-Side Subheader: Areas (Left) | Activity Blocks (Right) */}
-      <div className="px-3 pt-2.5 pb-1.5 grid grid-cols-[44px_1fr_1fr] gap-1.5 border-b border-cozy-border/50 bg-cozy-bg/20 text-[10px] font-extrabold uppercase tracking-wider">
-        <div className="text-right pr-1 text-cozy-subtext flex items-center justify-end">Hora</div>
-        <div className="flex items-center justify-between px-2 py-1 rounded-xl bg-cozy-bg/70 border border-dashed border-cozy-border text-cozy-subtext">
-          <span className="truncate">Áreas (Só hoje)</span>
-          <button
-            type="button"
-            onClick={() => openAreaModalForCreate('09:00', '11:00')}
-            className="p-0.5 rounded-md hover:bg-cozy-hover text-cozy-lavender shrink-0"
-            title="Adicionar área apenas para este dia"
-          >
-            <Plus className="w-3 h-3" />
-          </button>
+      {/* Untimed events strip for this date */}
+      {untimedBlocks.length > 0 && (
+        <div className="px-3 py-2 border-b border-cozy-border/60 bg-cozy-sky/[0.06] space-y-1.5">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-cozy-sky block">
+            Eventos sem horário específico ({untimedBlocks.length})
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {untimedBlocks.map((blk) => {
+              const meta = TIER_META[blk.tier] || TIER_META.FOCUS;
+              return (
+                <div
+                  key={blk.id}
+                  onClick={() => onSelectBlock(blk)}
+                  className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-bold cursor-pointer transition-colors ${meta.blockCard}`}
+                >
+                  <span className="whitespace-normal break-words leading-snug text-cozy-text">
+                    {blk.recurringSeriesId ? '↻ ' : ''}
+                    {blk.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      requestConfirm(
+                        'Remover evento do dia',
+                        `Deseja remover "${blk.title}" de ${formatDateBR(dateStr)}?`,
+                        () => deleteEffectiveBlock(dateStr, blk)
+                      );
+                    }}
+                    className="text-cozy-subtext hover:text-cozy-rose opacity-75 hover:opacity-100"
+                    title="Remover evento"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
+      )}
+
+      {/* Subheader: Conditional 2 Columns vs Single Activity Column */}
+      <div
+        className={`px-3 pt-2.5 pb-1.5 grid gap-1.5 border-b border-cozy-border/50 bg-cozy-bg/20 text-[10px] font-extrabold uppercase tracking-wider ${
+          allowAreaAdjustment ? 'grid-cols-[44px_1fr_1fr]' : 'grid-cols-[44px_1fr]'
+        }`}
+      >
+        <div className="text-right pr-1 text-cozy-subtext flex items-center justify-end">Hora</div>
+        {allowAreaAdjustment && (
+          <div className="flex items-center justify-between px-2 py-1 rounded-xl bg-cozy-bg/70 border border-dashed border-cozy-border text-cozy-subtext">
+            <span className="whitespace-normal break-words leading-tight">Áreas (Só hoje)</span>
+            <button
+              type="button"
+              onClick={() => openAreaModalForCreate('09:00', '11:00')}
+              className="p-0.5 rounded-md hover:bg-cozy-hover text-cozy-lavender shrink-0"
+              title="Adicionar área apenas para este dia"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between px-2 py-1 rounded-xl bg-cozy-bg/70 border border-cozy-border text-cozy-text">
-          <span className="truncate">Atividades</span>
+          <span className="whitespace-normal break-words leading-tight">Atividades</span>
           <button
             type="button"
             onClick={() => onDragCreate('09:00', '10:00')}
@@ -590,10 +676,12 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
         </div>
       </div>
 
-      {/* Vertical Split Ruler Body */}
+      {/* Vertical Ruler Body */}
       <div className="p-3 overflow-y-auto max-h-[720px] select-none">
         <div
-          className="grid grid-cols-[44px_1fr_1fr] gap-1.5 relative"
+          className={`grid gap-1.5 relative ${
+            allowAreaAdjustment ? 'grid-cols-[44px_1fr_1fr]' : 'grid-cols-[44px_1fr]'
+          }`}
           style={{ height: `${hoursList.length * hourHeight}px` }}
         >
           {/* Time labels column */}
@@ -612,10 +700,12 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
           {/* Shared Canvas Wrapper for synchronized Y coordinates & Now-Line */}
           <div
             ref={canvasRef}
-            className="col-span-2 grid grid-cols-2 gap-1.5 relative"
+            className={`relative grid gap-1.5 ${
+              allowAreaAdjustment ? 'col-span-2 grid-cols-2' : 'col-span-1 grid-cols-1'
+            }`}
             style={{ height: `${hoursList.length * hourHeight}px` }}
           >
-            {/* Current Time Line spanning both columns */}
+            {/* Current Time Line spanning column(s) */}
             {showNowLine && (
               <div
                 style={{ top: `${nowTopPx}px` }}
@@ -626,181 +716,186 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
               </div>
             )}
 
-            {/* LEFT COLUMN: DAY ROUTINE AREAS (Low opacity, day-only editable) */}
-            <div
-              onMouseDown={(e) => startTrackCreateDrag('AREA', e)}
-              className="relative border-l border-r border-cozy-border/70 bg-cozy-bg/20 rounded-xl cursor-crosshair overflow-hidden"
-              style={{ height: `${hoursList.length * hourHeight}px` }}
-            >
-              {/* Subtle Hour Grid Lines */}
-              {hoursList.map((hour) => (
-                <div
-                  key={`a-line-${hour}`}
-                  style={{
-                    top: `${(hour - startHour) * hourHeight}px`,
-                    height: `${hourHeight}px`,
-                  }}
-                  className="absolute inset-x-0 border-t border-cozy-border/40 pointer-events-none"
-                />
-              ))}
-
-              {/* Right-side Reserved Creation Gutter for Overlapping Areas */}
+            {/* LEFT COLUMN: DAY ROUTINE AREAS (Only when allowAreaAdjustment === true) */}
+            {allowAreaAdjustment && (
               <div
-                aria-hidden="true"
-                className="absolute right-0 inset-y-0 w-[16%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
-              />
-
-              {/* Drag-to-Create Preview on Left Area Track */}
-              {createDrag && createDrag.target === 'AREA' && (
-                <div
-                  style={{ top: `${createPreviewTop}px`, height: `${createPreviewHeight}px` }}
-                  className="absolute inset-x-1 z-20 rounded-xl border-2 border-dashed border-cozy-lavender bg-cozy-lavender/15 pointer-events-none flex items-center justify-center"
-                >
-                  <span className="text-[10px] font-extrabold text-cozy-lavender bg-cozy-bg/90 px-1.5 py-0.5 rounded-full shadow">
-                    {minutesToTimeString(Math.min(createDrag.anchorMin, createDrag.currentMin))}–
-                    {minutesToTimeString(Math.max(createDrag.anchorMin, createDrag.currentMin))}
-                  </span>
-                </div>
-              )}
-
-              {/* Area Cards (side-by-side overlaps + right gutter, only affect this date) */}
-              {routineAreas.map((area) => {
-                const isDraggingThis = areaDrag?.area.id === area.id;
-                const sMin = isDraggingThis
-                  ? areaDrag.previewStartMin
-                  : timeStringToMinutes(area.startTime);
-                const eMin = isDraggingThis
-                  ? areaDrag.previewEndMin
-                  : timeStringToMinutes(area.endTime);
-
-                const topPx = ((sMin - startHour * 60) / 60) * hourHeight;
-                const heightPx = Math.max(22, ((eMin - sMin) / 60) * hourHeight);
-                const meta = TIER_META[area.tier] || TIER_META.BACKGROUND;
-                const isCompact = heightPx < 44;
-                const slot = areaOverlapLayout[area.id] ?? {
-                  colIndex: 0,
-                  totalCols: 1,
-                  leftCss: '2px',
-                  widthCss: 'calc(84% - 3px)',
-                };
-
-                return (
+                onMouseDown={(e) => startTrackCreateDrag('AREA', e)}
+                className="relative border-l border-r border-cozy-border/70 bg-cozy-bg/20 rounded-xl cursor-crosshair overflow-hidden"
+                style={{ height: `${hoursList.length * hourHeight}px` }}
+              >
+                {/* Subtle Hour Grid Lines */}
+                {hoursList.map((hour) => (
                   <div
-                    key={area.id}
-                    onMouseDown={(e) => {
-                      if (e.button !== 0) return;
-                      e.stopPropagation();
-                      setAreaDrag({
-                        mode: 'MOVE',
-                        area,
-                        startClientY: e.clientY,
-                        origStartMin: timeStringToMinutes(area.startTime),
-                        origEndMin: timeStringToMinutes(area.endTime),
-                        previewStartMin: timeStringToMinutes(area.startTime),
-                        previewEndMin: timeStringToMinutes(area.endTime),
-                        hasMoved: false,
-                      });
-                    }}
+                    key={`a-line-${hour}`}
                     style={{
-                      top: `${topPx}px`,
-                      height: `${heightPx}px`,
-                      left: slot.leftCss,
-                      width: slot.widthCss,
+                      top: `${(hour - startHour) * hourHeight}px`,
+                      height: `${hourHeight}px`,
                     }}
-                    className={`group/area absolute rounded-xl flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing z-10 transition-shadow ${
-                      meta.areaBg
-                    } ${isDraggingThis ? 'ring-2 ring-cozy-peach z-30 opacity-95' : ''}`}
+                    className="absolute inset-x-0 border-t border-cozy-border/40 pointer-events-none"
+                  />
+                ))}
+
+                {/* Compact 8% Right-side Reserved Creation Gutter for Overlapping Areas */}
+                <div
+                  aria-hidden="true"
+                  className="absolute right-0 inset-y-0 w-[8%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
+                />
+
+                {/* Drag-to-Create Preview on Left Area Track */}
+                {createDrag && createDrag.target === 'AREA' && (
+                  <div
+                    style={{ top: `${createPreviewTop}px`, height: `${createPreviewHeight}px` }}
+                    className="absolute inset-x-1 z-20 rounded-xl border-2 border-dashed border-cozy-lavender bg-cozy-lavender/15 pointer-events-none flex items-center justify-center"
                   >
-                    {/* Top Resize */}
+                    <span className="text-[10px] font-extrabold text-cozy-lavender bg-cozy-bg/90 px-1.5 py-0.5 rounded-full shadow">
+                      {minutesToTimeString(Math.min(createDrag.anchorMin, createDrag.currentMin))}–
+                      {minutesToTimeString(Math.max(createDrag.anchorMin, createDrag.currentMin))}
+                    </span>
+                  </div>
+                )}
+
+                {/* Area Cards: Blur overlap by default vs side-by-side when isExpanded */}
+                {routineAreas.map((area) => {
+                  const isDraggingThis = areaDrag?.area.id === area.id;
+                  const sMin = isDraggingThis
+                    ? areaDrag.previewStartMin
+                    : timeStringToMinutes(area.startTime);
+                  const eMin = isDraggingThis
+                    ? areaDrag.previewEndMin
+                    : timeStringToMinutes(area.endTime);
+
+                  const topPx = ((sMin - startHour * 60) / 60) * hourHeight;
+                  const heightPx = Math.max(22, ((eMin - sMin) / 60) * hourHeight);
+                  const meta = TIER_META[area.tier] || TIER_META.BACKGROUND;
+                  const isCompact = heightPx < 44;
+                  const slot = areaOverlapLayout[area.id] ?? {
+                    colIndex: 0,
+                    totalCols: 1,
+                    leftCss: '2px',
+                    widthCss: 'calc(92% - 4px)',
+                  };
+
+                  const leftPos = isExpanded ? slot.leftCss : '2px';
+                  const widthPos = isExpanded ? slot.widthCss : 'calc(92% - 4px)';
+
+                  return (
                     <div
+                      key={area.id}
                       onMouseDown={(e) => {
                         if (e.button !== 0) return;
                         e.stopPropagation();
                         setAreaDrag({
-                          mode: 'RESIZE_TOP',
+                          mode: 'MOVE',
                           area,
                           startClientY: e.clientY,
                           origStartMin: timeStringToMinutes(area.startTime),
                           origEndMin: timeStringToMinutes(area.endTime),
                           previewStartMin: timeStringToMinutes(area.startTime),
                           previewEndMin: timeStringToMinutes(area.endTime),
-                          hasMoved: true,
+                          hasMoved: false,
                         });
                       }}
-                      title="Arraste para ajustar início da área hoje"
-                      className="h-2 w-full cursor-ns-resize flex items-center justify-center opacity-0 group-hover/area:opacity-100 hover:bg-white/10 shrink-0"
+                      style={{
+                        top: `${topPx}px`,
+                        height: `${heightPx}px`,
+                        left: leftPos,
+                        width: widthPos,
+                      }}
+                      className={`group/area absolute rounded-xl backdrop-blur-sm flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing z-10 transition-[left,width,box-shadow] duration-200 ${
+                        meta.areaBg
+                      } ${isDraggingThis ? 'ring-2 ring-cozy-peach z-30 opacity-95' : ''}`}
                     >
-                      <GripHorizontal className="w-3 h-2.5 opacity-70" />
-                    </div>
-
-                    <div className="px-2 flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-[11px] font-bold truncate leading-tight opacity-90">
-                          {area.title}
-                        </span>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            requestConfirm(
-                              'Remover Área Apenas Neste Dia?',
-                              `Deseja remover "${area.title}" (${area.startTime}–${area.endTime}) apenas em ${formatDateBR(
-                                dateStr
-                              )}? A Rotina semanal não será alterada.`,
-                              () => deleteDayRoutineArea(dateStr, area.id)
-                            );
-                          }}
-                          className="p-0.5 rounded text-current/60 hover:text-cozy-rose hover:bg-cozy-bg/70 opacity-0 group-hover/area:opacity-100 transition-opacity shrink-0"
-                          title="Remover área apenas neste dia"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                      {/* Top Resize */}
+                      <div
+                        onMouseDown={(e) => {
+                          if (e.button !== 0) return;
+                          e.stopPropagation();
+                          setAreaDrag({
+                            mode: 'RESIZE_TOP',
+                            area,
+                            startClientY: e.clientY,
+                            origStartMin: timeStringToMinutes(area.startTime),
+                            origEndMin: timeStringToMinutes(area.endTime),
+                            previewStartMin: timeStringToMinutes(area.startTime),
+                            previewEndMin: timeStringToMinutes(area.endTime),
+                            hasMoved: true,
+                          });
+                        }}
+                        title="Arraste para ajustar início da área hoje"
+                        className="h-2 w-full cursor-ns-resize flex items-center justify-center opacity-0 group-hover/area:opacity-100 hover:bg-white/10 shrink-0"
+                      >
+                        <GripHorizontal className="w-3 h-2.5 opacity-70" />
                       </div>
 
-                      {!isCompact && (
-                        <div className="flex items-center justify-between gap-1 mt-0.5 text-[9px] opacity-80">
-                          <span className="font-mono tabular-nums truncate">
-                            {minutesToTimeString(sMin)}–{minutesToTimeString(eMin)}
+                      <div className="px-2 flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="text-[11px] font-bold whitespace-normal break-words leading-tight opacity-95">
+                            {area.title}
                           </span>
-                          <span className="font-semibold truncate">{meta.shortLabel}</span>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestConfirm(
+                                'Remover Área Apenas Neste Dia?',
+                                `Deseja remover "${area.title}" (${area.startTime}–${area.endTime}) apenas em ${formatDateBR(
+                                  dateStr
+                                )}? A Rotina semanal não será alterada.`,
+                                () => deleteDayRoutineArea(dateStr, area.id)
+                              );
+                            }}
+                            className="p-0.5 rounded text-current/60 hover:text-cozy-rose hover:bg-cozy-bg/70 opacity-0 group-hover/area:opacity-100 transition-opacity shrink-0"
+                            title="Remover área apenas neste dia"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Bottom Resize */}
-                    <div
-                      onMouseDown={(e) => {
-                        if (e.button !== 0) return;
-                        e.stopPropagation();
-                        setAreaDrag({
-                          mode: 'RESIZE_BOTTOM',
-                          area,
-                          startClientY: e.clientY,
-                          origStartMin: timeStringToMinutes(area.startTime),
-                          origEndMin: timeStringToMinutes(area.endTime),
-                          previewStartMin: timeStringToMinutes(area.startTime),
-                          previewEndMin: timeStringToMinutes(area.endTime),
-                          hasMoved: true,
-                        });
-                      }}
-                      title="Arraste para ajustar término da área hoje"
-                      className="h-2 w-full cursor-ns-resize flex items-center justify-center opacity-0 group-hover/area:opacity-100 hover:bg-white/10 shrink-0"
-                    >
-                      <GripHorizontal className="w-3 h-2.5 opacity-70" />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                        {!isCompact && (
+                          <div className="flex items-center justify-between gap-1 mt-0.5 text-[9px] opacity-80 flex-wrap">
+                            <span className="font-mono tabular-nums">
+                              {minutesToTimeString(sMin)}–{minutesToTimeString(eMin)}
+                            </span>
+                            <span className="font-semibold">{meta.shortLabel}</span>
+                          </div>
+                        )}
+                      </div>
 
-            {/* RIGHT COLUMN: ACTIVITY BLOCKS */}
+                      {/* Bottom Resize */}
+                      <div
+                        onMouseDown={(e) => {
+                          if (e.button !== 0) return;
+                          e.stopPropagation();
+                          setAreaDrag({
+                            mode: 'RESIZE_BOTTOM',
+                            area,
+                            startClientY: e.clientY,
+                            origStartMin: timeStringToMinutes(area.startTime),
+                            origEndMin: timeStringToMinutes(area.endTime),
+                            previewStartMin: timeStringToMinutes(area.startTime),
+                            previewEndMin: timeStringToMinutes(area.endTime),
+                            hasMoved: true,
+                          });
+                        }}
+                        title="Arraste para ajustar término da área hoje"
+                        className="h-2 w-full cursor-ns-resize flex items-center justify-center opacity-0 group-hover/area:opacity-100 hover:bg-white/10 shrink-0"
+                      >
+                        <GripHorizontal className="w-3 h-2.5 opacity-70" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ACTIVITY BLOCKS COLUMN */}
             <div
               onMouseDown={(e) => startTrackCreateDrag('ACTIVITY', e)}
               className="relative border-l border-r border-cozy-border/70 bg-cozy-bg/35 rounded-xl cursor-crosshair overflow-hidden"
               style={{ height: `${hoursList.length * hourHeight}px` }}
             >
-              {/* Subtle Hour Grid Lines + LIVRE watermark */}
+              {/* Subtle Hour Grid Lines */}
               {hoursList.map((hour) => (
                 <div
                   key={`b-line-${hour}`}
@@ -814,13 +909,39 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 </div>
               ))}
 
-              {/* Right-side Reserved Creation Gutter for Overlapping Activity Blocks */}
+              {/* Read-only Low-Opacity Background Areas on Agenda Ruler (no adjustment controls) */}
+              {!allowAreaAdjustment &&
+                routineAreas.map((area) => {
+                  const sMin = timeStringToMinutes(area.startTime);
+                  const eMin = timeStringToMinutes(area.endTime);
+                  const topPx = ((sMin - startHour * 60) / 60) * hourHeight;
+                  const heightPx = Math.max(22, ((eMin - sMin) / 60) * hourHeight);
+                  const meta = TIER_META[area.tier] || TIER_META.BACKGROUND;
+                  return (
+                    <div
+                      key={`bg-area-${area.id}`}
+                      style={{
+                        top: `${topPx}px`,
+                        height: `${heightPx}px`,
+                        left: '2px',
+                        width: 'calc(92% - 4px)',
+                      }}
+                      className={`pointer-events-none absolute rounded-xl px-2 py-1 z-0 opacity-45 backdrop-blur-[1px] overflow-hidden flex flex-col justify-start ${meta.areaBg}`}
+                    >
+                      <span className="text-[10px] font-bold whitespace-normal break-words leading-tight">
+                        {area.title}
+                      </span>
+                    </div>
+                  );
+                })}
+
+              {/* Compact 8% Right-side Reserved Creation Gutter for Overlapping Activity Blocks */}
               <div
                 aria-hidden="true"
-                className="absolute right-0 inset-y-0 w-[16%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
+                className="absolute right-0 inset-y-0 w-[8%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
               />
 
-              {/* Drag-to-Create Preview on Right Activity Track */}
+              {/* Drag-to-Create Preview on Activity Track */}
               {createDrag && createDrag.target === 'ACTIVITY' && (
                 <div
                   style={{ top: `${createPreviewTop}px`, height: `${createPreviewHeight}px` }}
@@ -833,8 +954,8 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 </div>
               )}
 
-              {/* Scheduled Activity Blocks */}
-              {blocks.map((block) => {
+              {/* Scheduled Timed Activity Blocks */}
+              {timedBlocks.map((block) => {
                 const isDraggingThis = blockDrag?.block.id === block.id;
                 const sMin = isDraggingThis
                   ? blockDrag.previewStartMin
@@ -859,8 +980,19 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                   colIndex: 0,
                   totalCols: 1,
                   leftCss: '2px',
-                  widthCss: 'calc(84% - 3px)',
+                  widthCss: 'calc(92% - 4px)',
                 };
+
+                const leftPos = isExpanded
+                  ? slot.leftCss
+                  : block.layer === 1
+                    ? '8px'
+                    : '2px';
+                const widthPos = isExpanded
+                  ? slot.widthCss
+                  : block.layer === 1
+                    ? 'calc(92% - 10px)'
+                    : 'calc(92% - 4px)';
 
                 return (
                   <div
@@ -882,10 +1014,10 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                     style={{
                       top: `${topPx}px`,
                       height: `${heightPx}px`,
-                      left: slot.leftCss,
-                      width: slot.widthCss,
+                      left: leftPos,
+                      width: widthPos,
                     }}
-                    className={`group absolute rounded-xl border backdrop-blur-sm transition-shadow cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden ${
+                    className={`group absolute rounded-xl border backdrop-blur-sm transition-[left,width,box-shadow] duration-200 cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden ${
                       block.layer === 1
                         ? 'z-20 shadow-lg ring-1 ring-cozy-lavender/40'
                         : 'z-10 shadow-sm'
@@ -916,11 +1048,11 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                     {/* Block Content */}
                     <div className="px-2 flex-1 min-h-0 flex items-center justify-between gap-1 overflow-hidden">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] font-bold text-cozy-subtext tabular-nums shrink-0">
+                        <div className="flex items-start gap-1">
+                          <span className="text-[9px] font-bold text-cozy-subtext tabular-nums shrink-0 mt-0.5">
                             {minutesToTimeString(sMin)}
                           </span>
-                          <span className="text-[11px] font-extrabold text-cozy-text truncate">
+                          <span className="text-[11px] font-extrabold text-cozy-text whitespace-normal break-words leading-tight">
                             {block.title}
                           </span>
                         </div>
@@ -934,9 +1066,9 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                               </span>
                             )}
                             {linkedProgress && (
-                              <span className="text-[9px] font-semibold text-cozy-sage flex items-center gap-0.5 truncate">
+                              <span className="text-[9px] font-semibold text-cozy-sage flex items-center gap-0.5 whitespace-normal break-words">
                                 <BarChart3 className="w-2.5 h-2.5 shrink-0" />
-                                <span className="truncate">
+                                <span className="whitespace-normal break-words leading-tight">
                                   {linkedProgress.type === 'TIME' &&
                                   linkedProgress.spentTodaySeconds !== undefined
                                     ? formatSecondsToHuman(linkedProgress.spentTodaySeconds)
@@ -945,7 +1077,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                               </span>
                             )}
                             {linkedTask && (
-                              <span className="text-[9px] font-semibold text-cozy-sky flex items-center gap-0.5 truncate">
+                              <span className="text-[9px] font-semibold text-cozy-sky flex items-center gap-0.5">
                                 <CheckSquare className="w-2.5 h-2.5 shrink-0" />
                                 [{linkedTask.priority}]
                               </span>

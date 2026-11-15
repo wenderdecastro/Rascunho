@@ -45,7 +45,7 @@ export const MiniPlayerPiP: React.FC = () => {
 
       {/* Title & Tag */}
       <div className="mb-3">
-        <h4 className="font-bold text-sm text-cozy-text truncate">
+        <h4 className="font-bold text-sm text-cozy-text whitespace-normal break-words leading-snug">
           {activeBlock ? activeBlock.title : current ? current.title : 'Horário Livre'}
         </h4>
         <span className="inline-block mt-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-cozy-lavender-light text-cozy-lavender">

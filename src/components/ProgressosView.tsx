@@ -503,7 +503,7 @@ export const ProgressosView: React.FC = () => {
                     >
                       {sub.isCompleted && <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />}
                     </div>
-                    <span className="font-medium truncate">{sub.title}</span>
+                    <span className="font-medium whitespace-normal break-words leading-snug">{sub.title}</span>
                   </div>
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cozy-card border border-cozy-border shrink-0">
                     {sub.weightPercent}%
@@ -670,7 +670,7 @@ export const ProgressosView: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <h3 className="font-extrabold text-lg text-cozy-text mt-1.5 leading-snug truncate">
+                  <h3 className="font-extrabold text-lg text-cozy-text mt-1.5 leading-snug whitespace-normal break-words">
                     {p.title}
                   </h3>
                 </div>
@@ -747,7 +747,7 @@ export const ProgressosView: React.FC = () => {
                           >
                             <div className="flex items-center justify-between gap-2 mb-1.5">
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm font-extrabold text-cozy-text truncate">
+                                <span className="text-sm font-extrabold text-cozy-text whitespace-normal break-words leading-snug">
                                   {child.title}
                                 </span>
                                 {child.isUnlimited && (

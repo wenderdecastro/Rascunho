@@ -4,6 +4,20 @@ Todas as alterações notáveis do **Rascunho** são documentadas neste arquivo,
 
 ---
 
+## [1.2.3] - 2026-11-14
+
+### Added
+- **Eventos Não Recorrentes da Agenda no Meu Dia (`MeuDiaView` & `BlockAllocationModal`):** Nova seção logo abaixo de _Atividade Atual_ listando blocos e tarefas pontuais a partir de hoje, exibindo quantos **dias** faltam para datas futuras, quantas **horas/minutos** faltam quando é no mesmo dia com horário, ou **`É hoje`** para eventos/tarefas criados sem horário especificado (toggle _Sem horário específico (só a data)_ no modal).
+- **Proporção 60% / 40% no Meu Dia (`MeuDiaView`):** A régua vertical interativa no Meu Dia passou a ocupar **40% da largura horizontal** (`grid-cols-[3fr_2fr]`) ao lado dos painéis operacionais.
+- **Alternância de Sobreposição na Régua (`InteractiveVerticalRuler`):** Botão para expandir itens sobrepostos lado a lado ou mantê-los sobrepostos com efeito `backdrop-blur-sm` (comportamento padrão recolhido).
+
+### Changed
+- **Agenda sem Ajuste de Áreas (`AgendaView` + `InteractiveVerticalRuler`):** A régua da Agenda (`allowAreaAdjustment={false}`) exibe apenas a coluna de Atividades com as áreas da rotina semanal em baixa opacidade no fundo somente como referência, sem controles de ajuste de áreas nessa aba.
+- **Faixa Lateral Reduzida + Sobreposição Condicional (`InteractiveVerticalRuler` & `RotinaView`):** Espaço livre na lateral direita reduzido para `8%` (`usableWidthPct = 92`). Quando a coluna/régua não está expandida, áreas e blocos voltam a se sobrepor com blur; ao expandir, organizam-se lado a lado.
+- **Quebra de Linha em Títulos (`AgendaView`, `InteractiveVerticalRuler`, `RotinaView`, `MeuDiaView`, `ProgressosView`, `MiniPlayerPiP`, `BlockAllocationModal`):** Removidos os truncamentos (`truncate`) de títulos de áreas, blocos, cards do calendário e progressos em favor de quebra de linha (`whitespace-normal break-words`).
+
+---
+
 ## [1.2.2] - 2026-11-14
 
 ### Added

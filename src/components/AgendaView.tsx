@@ -73,7 +73,7 @@ export const AgendaView: React.FC = () => {
             <span>Agenda Mensal &amp; Régua de Alocação</span>
           </h1>
           <p className="text-sm text-cozy-subtext mt-0.5">
-            Selecione um dia no calendário (75%) e use a régua dividida ao lado (25%) para ajustar áreas só daquele dia ou alocar blocos de atividade com repetição.
+            Selecione um dia no calendário (75%) e use a régua ao lado (25%) para consultar as áreas da rotina e alocar blocos de atividade.
           </p>
         </div>
 
@@ -215,8 +215,8 @@ export const AgendaView: React.FC = () => {
                     {dayAllBlocks.map((blk) => (
                       <div
                         key={blk.id}
-                        title={`${blk.startTime} - ${blk.endTime}: ${blk.title}`}
-                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md truncate border ${
+                        title={`${blk.startTime ? `${blk.startTime} - ${blk.endTime}` : 'Sem horário'}: ${blk.title}`}
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md border whitespace-normal break-words leading-tight ${
                           blk.tier === 'FOCUS'
                             ? 'bg-cozy-lavender/15 text-cozy-lavender border-cozy-lavender/25'
                             : blk.tier === 'TRANSIT'
@@ -224,8 +224,10 @@ export const AgendaView: React.FC = () => {
                               : 'bg-cozy-sky/15 text-cozy-sky border-cozy-sky/25'
                         }`}
                       >
-                        <span className="font-mono text-[9px] mr-1 opacity-75">{blk.startTime}</span>
-                        <span>
+                        <span className="font-mono text-[9px] mr-1 opacity-75">
+                          {blk.startTime || 'Dia todo'}
+                        </span>
+                        <span className="whitespace-normal break-words">
                           {blk.recurringSeriesId ? '↻ ' : ''}
                           {blk.title}
                         </span>
@@ -245,6 +247,7 @@ export const AgendaView: React.FC = () => {
             onSelectBlock={handleSelectBlock}
             onDragCreate={handleDragCreate}
             hourHeight={52}
+            allowAreaAdjustment={false}
             title={`Dia: ${formatDateBR(selectedDate)}`}
             subtitle={`${selectedEffectiveBlocks.length} atividade(s)`}
             headerRight={

@@ -688,7 +688,7 @@ export const RotinaView: React.FC = () => {
                       : timeStringToMinutes(b.endTime),
                   };
                 },
-                isExpanded ? 87 : 83
+                92
               );
 
               return (
@@ -807,14 +807,12 @@ export const RotinaView: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Right-side free gutter so overlapping areas can always be drag-created */}
+                  {/* Compact 8% right-side free gutter so overlapping areas can always be drag-created */}
                   <div
-                    className={`absolute top-0 bottom-0 right-0 border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none transition-all duration-300 ${
-                      isExpanded ? 'w-[13%]' : 'w-[17%]'
-                    }`}
+                    className="absolute top-0 bottom-0 right-0 w-[8%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
                   />
 
-                  {/* Routine Areas (drag body to move, drag edges to resize, click to edit) */}
+                  {/* Routine Areas (blur overlap by default; side-by-side when day is expanded) */}
                   {dayBlocks.map((block) => {
                     const isDraggingThis = blockDrag?.block.id === block.id;
                     const sMin = isDraggingThis
@@ -831,8 +829,11 @@ export const RotinaView: React.FC = () => {
                       colIndex: 0,
                       totalCols: 1,
                       leftCss: '0%',
-                      widthCss: isExpanded ? '87%' : '83%',
+                      widthCss: '92%',
                     };
+
+                    const leftPos = isExpanded ? slot.leftCss : '3px';
+                    const widthPos = isExpanded ? slot.widthCss : 'calc(92% - 5px)';
 
                     return (
                       <div
@@ -855,8 +856,8 @@ export const RotinaView: React.FC = () => {
                         style={{
                           top: `${topPx}px`,
                           height: `${heightPx}px`,
-                          left: slot.leftCss,
-                          width: slot.widthCss,
+                          left: leftPos,
+                          width: widthPos,
                         }}
                         className={`group absolute rounded-xl backdrop-blur-sm transition-[left,width,box-shadow] duration-300 cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden z-10 ${style.container} ${
                           isDraggingThis ? 'ring-2 ring-cozy-peach z-30 opacity-90' : ''
@@ -891,13 +892,7 @@ export const RotinaView: React.FC = () => {
                               }`}
                             >
                               <span className="shrink-0">{style.icon}</span>
-                              <span
-                                className={
-                                  isExpanded
-                                    ? 'whitespace-normal line-clamp-2 break-words'
-                                    : 'truncate'
-                                }
-                              >
+                              <span className="whitespace-normal break-words leading-tight">
                                 {block.title}
                               </span>
                             </span>
@@ -1047,7 +1042,7 @@ export const RotinaView: React.FC = () => {
                             {task.isCompleted && <Check className="w-3 h-3 text-cozy-sage" />}
                           </span>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-cozy-text truncate">{task.title}</p>
+                            <p className="text-xs font-bold text-cozy-text whitespace-normal break-words leading-snug">{task.title}</p>
                             <div className="flex items-center gap-1.5 flex-wrap mt-1">
                               <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-cozy-card border border-cozy-border text-cozy-subtext">
                                 {task.priority}
