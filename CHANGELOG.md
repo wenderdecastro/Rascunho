@@ -4,6 +4,17 @@ Todas as alterações notáveis do **Rascunho** são documentadas neste arquivo,
 
 ---
 
+## [1.2.2] - 2026-11-14
+
+### Added
+- **Sobreposição Lado a Lado + Faixa Lateral de Criação (`InteractiveVerticalRuler` & `RotinaView`):** Itens concorrentes (Áreas e Blocos no Meu Dia e Áreas na Rotina) passaram a ser organizados lado a lado via `computeOverlapLayout`, reservando uma faixa livre lateral (`13%`–`17%`) para permitir drag-to-create de itens sobrepostos a qualquer momento.
+- **Expansão Animada de Dia na Rotina (`RotinaView`):** Clicar no cabeçalho de um dia da semana ou interagir com sua régua expande suavemente a coluna selecionada e encolhe os demais dias (com botão `Ver 7 dias iguais` para restaurar), exibindo títulos completos em até 2 linhas, tag de energia e obrigatoriedade com clareza.
+
+### Fixed
+- **Precisão Magnética de Arraste (`snapMinutesFromRelativeY`):** Corrigido o salto indesejado de cliques logo abaixo da linha de hora cheia (`HH:00` → `HH:15`), diferenciando ancoragem inicial (`ANCHOR`) de ajuste contínuo do cursor (`CURSOR`).
+
+---
+
 ## [1.2.1] - 2026-11-14
 
 ### Changed

@@ -16,6 +16,8 @@ import {
   expandRecurrenceDates,
   formatLocalDateString,
   formatDateBR,
+  snapMinutesFromRelativeY,
+  computeOverlapLayout,
 } from '../utils/helpers';
 import {
   Plus,
@@ -27,6 +29,8 @@ import {
   Repeat,
   CheckSquare,
   Check,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 const DAYS_OF_WEEK = [
@@ -129,6 +133,7 @@ export const RotinaView: React.FC = () => {
   const columnRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [blockDrag, setBlockDrag] = useState<RoutineDragState | null>(null);
   const [createDrag, setCreateDrag] = useState<RoutineCreateState | null>(null);
+  const [expandedDayId, setExpandedDayId] = useState<number | null>(null);
 
   // Area Modal State
   const [showModal, setShowModal] = useState(false);
@@ -206,14 +211,16 @@ export const RotinaView: React.FC = () => {
     return groups;
   }, [tasks]);
 
-  const clientYToSnappedMinutes = (dayId: number, clientY: number) => {
+  const clientYToSnappedMinutes = (
+    dayId: number,
+    clientY: number,
+    mode: 'ANCHOR' | 'CURSOR' = 'ANCHOR'
+  ) => {
     const el = columnRefs.current[dayId];
     if (!el) return startHour * 60;
     const rect = el.getBoundingClientRect();
     const relY = Math.max(0, Math.min(rect.height, clientY - rect.top));
-    const totalMins = startHour * 60 + (relY / HOUR_HEIGHT) * 60;
-    const snapped = Math.round(totalMins / 15) * 15;
-    return Math.max(startHour * 60, Math.min(endHour * 60, snapped));
+    return snapMinutesFromRelativeY(relY, HOUR_HEIGHT, startHour, endHour, mode);
   };
 
   const openCreateModal = (dayId: number, sTime = '08:00', eTime = '10:00') => {
@@ -285,7 +292,8 @@ export const RotinaView: React.FC = () => {
       if (cDrag) {
         const currentMin = dragCallbacksRef.current.clientYToSnappedMinutes(
           cDrag.dayId,
-          ev.clientY
+          ev.clientY,
+          'CURSOR'
         );
         setCreateDrag((prev) => (prev ? { ...prev, currentMin } : null));
       }
@@ -549,6 +557,17 @@ export const RotinaView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          {expandedDayId !== null && (
+            <button
+              type="button"
+              onClick={() => setExpandedDayId(null)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-cozy-bg text-cozy-peach border border-cozy-peach/40 font-extrabold text-xs hover:bg-cozy-peach/10 transition-all"
+              title="Restaurar visualização igual para os 7 dias"
+            >
+              <Minimize2 className="w-3.5 h-3.5" />
+              <span>Ver 7 dias iguais</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => openTaskModal('FOCUS')}
@@ -572,8 +591,8 @@ export const RotinaView: React.FC = () => {
       <div className="bg-cozy-card rounded-3xl p-6 border border-cozy-border shadow-cozy overflow-x-auto">
         <div className="min-w-[1160px]">
           {/* Days Header */}
-          <div className="grid grid-cols-[65px_repeat(7,1fr)] gap-3 pb-3 border-b border-cozy-border text-center text-xs font-bold text-cozy-text">
-            <div className="text-cozy-subtext flex flex-col items-center justify-center">
+          <div className="flex items-stretch gap-2.5 pb-3 border-b border-cozy-border text-center text-xs font-bold text-cozy-text">
+            <div className="w-[60px] shrink-0 text-cozy-subtext flex flex-col items-center justify-center">
               <Clock className="w-4 h-4 mb-0.5" />
               <span className="text-[10px] font-mono text-cozy-peach">
                 {minutesToTimeString(nowMinutes)}
@@ -582,36 +601,60 @@ export const RotinaView: React.FC = () => {
             {DAYS_OF_WEEK.map((d) => {
               const blocksCount = routineBlocks.filter((b) => b.dayOfWeek === d.id).length;
               const isTodayCol = d.id === currentDayOfWeek;
+              const isExpanded = expandedDayId === d.id;
+              const isShrunk = expandedDayId !== null && !isExpanded;
               return (
-                <div
+                <button
                   key={d.id}
-                  className={`p-2.5 rounded-2xl border ${
-                    isTodayCol
-                      ? 'bg-cozy-peach/10 border-cozy-peach/50'
-                      : 'bg-cozy-bg border-cozy-border'
+                  type="button"
+                  onClick={() => setExpandedDayId((prev) => (prev === d.id ? null : d.id))}
+                  style={{
+                    flex: isExpanded ? '4.2 1 0%' : isShrunk ? '0.85 1 0%' : '1 1 0%',
+                    minWidth: isExpanded ? '380px' : isShrunk ? '90px' : '130px',
+                  }}
+                  title={
+                    isExpanded
+                      ? 'Clique para restaurar todos os dias'
+                      : `Expandir ${d.name} para ver áreas sobrepostas lado a lado`
+                  }
+                  className={`p-2.5 rounded-2xl border text-center transition-all duration-300 ease-out cursor-pointer group ${
+                    isExpanded
+                      ? 'bg-cozy-lavender/15 border-cozy-lavender/60 ring-1 ring-cozy-lavender/30'
+                      : isTodayCol
+                        ? 'bg-cozy-peach/10 border-cozy-peach/50 hover:border-cozy-peach'
+                        : 'bg-cozy-bg border-cozy-border hover:border-cozy-lavender/40'
                   }`}
                 >
-                  <div className="text-sm font-extrabold flex items-center justify-center gap-1.5">
-                    <span>{d.name}</span>
+                  <div className="text-sm font-extrabold flex items-center justify-center gap-1.5 min-w-0">
+                    <span className={`truncate ${isShrunk ? 'text-xs' : ''}`}>
+                      {isShrunk ? d.name.slice(0, 3) : d.name}
+                    </span>
                     {isTodayCol && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cozy-peach text-cozy-bg font-extrabold">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cozy-peach text-cozy-bg font-extrabold shrink-0">
                         HOJE
                       </span>
                     )}
+                    {isExpanded ? (
+                      <Minimize2 className="w-3 h-3 text-cozy-lavender shrink-0 opacity-85" />
+                    ) : (
+                      !isShrunk && (
+                        <Maximize2 className="w-3 h-3 text-cozy-subtext shrink-0 opacity-0 group-hover:opacity-80 transition-opacity" />
+                      )
+                    )}
                   </div>
-                  <div className="text-[10px] font-medium text-cozy-subtext">
+                  <div className="text-[10px] font-medium text-cozy-subtext truncate">
                     {blocksCount} área(s)
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
 
           {/* Vertical Timelines */}
-          <div className="grid grid-cols-[65px_repeat(7,1fr)] gap-3 mt-3 relative select-none">
+          <div className="flex items-stretch gap-2.5 mt-3 relative select-none">
             {/* Left Hour Axis */}
             <div
-              className="relative text-xs font-mono font-bold text-cozy-subtext text-right pr-2"
+              className="w-[60px] shrink-0 relative text-xs font-mono font-bold text-cozy-subtext text-right pr-2"
               style={{ height: `${hoursList.length * HOUR_HEIGHT}px` }}
             >
               {hoursList.map((h, idx) => (
@@ -630,6 +673,23 @@ export const RotinaView: React.FC = () => {
               const dayBlocks = routineBlocks.filter((b) => b.dayOfWeek === d.id);
               const freeWindows = getDayFreeWindows(d.id);
               const isTodayCol = d.id === currentDayOfWeek;
+              const isExpanded = expandedDayId === d.id;
+              const isShrunk = expandedDayId !== null && !isExpanded;
+              const dayOverlapLayout = computeOverlapLayout(
+                dayBlocks,
+                (b) => {
+                  const isDraggingB = blockDrag?.block.id === b.id;
+                  return {
+                    startMin: isDraggingB
+                      ? blockDrag.previewStartMin
+                      : timeStringToMinutes(b.startTime),
+                    endMin: isDraggingB
+                      ? blockDrag.previewEndMin
+                      : timeStringToMinutes(b.endTime),
+                  };
+                },
+                isExpanded ? 87 : 83
+              );
 
               return (
                 <div
@@ -639,7 +699,8 @@ export const RotinaView: React.FC = () => {
                   }}
                   onMouseDown={(e) => {
                     if (e.button !== 0) return;
-                    const anchorMin = clientYToSnappedMinutes(d.id, e.clientY);
+                    const anchorMin = clientYToSnappedMinutes(d.id, e.clientY, 'ANCHOR');
+                    setExpandedDayId(d.id);
                     setCreateDrag({
                       dayId: d.id,
                       anchorMin,
@@ -647,10 +708,18 @@ export const RotinaView: React.FC = () => {
                       startClientY: e.clientY,
                     });
                   }}
-                  className={`relative rounded-2xl bg-cozy-bg border overflow-hidden cursor-crosshair ${
-                    isTodayCol ? 'border-cozy-peach/40' : 'border-cozy-border'
+                  className={`relative rounded-2xl bg-cozy-bg border overflow-hidden cursor-crosshair transition-all duration-300 ease-out ${
+                    isExpanded
+                      ? 'border-cozy-lavender/55 ring-1 ring-cozy-lavender/20'
+                      : isTodayCol
+                        ? 'border-cozy-peach/40'
+                        : 'border-cozy-border'
                   }`}
-                  style={{ height: `${hoursList.length * HOUR_HEIGHT}px` }}
+                  style={{
+                    height: `${hoursList.length * HOUR_HEIGHT}px`,
+                    flex: isExpanded ? '4.2 1 0%' : isShrunk ? '0.85 1 0%' : '1 1 0%',
+                    minWidth: isExpanded ? '380px' : isShrunk ? '90px' : '130px',
+                  }}
                 >
                   {/* Hour Grid Lines */}
                   {hoursList.map((h, i) => (
@@ -738,6 +807,13 @@ export const RotinaView: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Right-side free gutter so overlapping areas can always be drag-created */}
+                  <div
+                    className={`absolute top-0 bottom-0 right-0 border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none transition-all duration-300 ${
+                      isExpanded ? 'w-[13%]' : 'w-[17%]'
+                    }`}
+                  />
+
                   {/* Routine Areas (drag body to move, drag edges to resize, click to edit) */}
                   {dayBlocks.map((block) => {
                     const isDraggingThis = blockDrag?.block.id === block.id;
@@ -751,6 +827,12 @@ export const RotinaView: React.FC = () => {
                     const topPx = ((sMin - startHour * 60) / 60) * HOUR_HEIGHT;
                     const heightPx = Math.max(24, ((eMin - sMin) / 60) * HOUR_HEIGHT);
                     const style = getRoutineAreaStyle(block);
+                    const slot = dayOverlapLayout[block.id] ?? {
+                      colIndex: 0,
+                      totalCols: 1,
+                      leftCss: '0%',
+                      widthCss: isExpanded ? '87%' : '83%',
+                    };
 
                     return (
                       <div
@@ -758,6 +840,7 @@ export const RotinaView: React.FC = () => {
                         onMouseDown={(e) => {
                           if (e.button !== 0) return;
                           e.stopPropagation();
+                          setExpandedDayId(d.id);
                           setBlockDrag({
                             mode: 'MOVE',
                             block,
@@ -769,8 +852,13 @@ export const RotinaView: React.FC = () => {
                             hasMoved: false,
                           });
                         }}
-                        style={{ top: `${topPx}px`, height: `${heightPx}px` }}
-                        className={`group absolute inset-x-1 rounded-xl backdrop-blur-sm transition-shadow cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden z-10 ${style.container} ${
+                        style={{
+                          top: `${topPx}px`,
+                          height: `${heightPx}px`,
+                          left: slot.leftCss,
+                          width: slot.widthCss,
+                        }}
+                        className={`group absolute rounded-xl backdrop-blur-sm transition-[left,width,box-shadow] duration-300 cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden z-10 ${style.container} ${
                           isDraggingThis ? 'ring-2 ring-cozy-peach z-30 opacity-90' : ''
                         }`}
                       >
@@ -796,10 +884,22 @@ export const RotinaView: React.FC = () => {
                         </div>
 
                         <div className="px-2 flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-[11px] font-extrabold truncate leading-tight flex items-center gap-1">
-                              <span>{style.icon}</span>
-                              <span className="truncate">{block.title}</span>
+                          <div className="flex items-start justify-between gap-1">
+                            <span
+                              className={`font-extrabold leading-tight flex items-start gap-1 min-w-0 ${
+                                isExpanded ? 'text-xs leading-snug' : 'text-[11px]'
+                              }`}
+                            >
+                              <span className="shrink-0">{style.icon}</span>
+                              <span
+                                className={
+                                  isExpanded
+                                    ? 'whitespace-normal line-clamp-2 break-words'
+                                    : 'truncate'
+                                }
+                              >
+                                {block.title}
+                              </span>
                             </span>
                             <button
                               type="button"
@@ -820,17 +920,30 @@ export const RotinaView: React.FC = () => {
                               <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
-                          <div className="flex items-center justify-between gap-1 mt-0.5">
+                          <div className="flex items-center justify-between gap-1 mt-0.5 flex-wrap">
                             <span className="text-[9px] font-mono text-cozy-subtext truncate">
                               {minutesToTimeString(sMin)}–{minutesToTimeString(eMin)}
                             </span>
-                            {heightPx > 42 && (
-                              <span className={`text-[9px] font-bold px-1 rounded ${style.badge}`}>
-                                {style.label}
-                              </span>
+                            {(isExpanded ? heightPx > 32 : heightPx > 42) && (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span className={`text-[9px] font-bold px-1 rounded ${style.badge}`}>
+                                  {style.label}
+                                </span>
+                                {isExpanded && (
+                                  <span
+                                    className={`text-[8px] font-bold px-1 rounded border ${
+                                      block.obligation === 'MANDATORY'
+                                        ? 'border-cozy-peach/40 text-cozy-peach bg-cozy-peach/10'
+                                        : 'border-cozy-sage/40 text-cozy-sage bg-cozy-sage/10'
+                                    }`}
+                                  >
+                                    {block.obligation === 'MANDATORY' ? 'Obrig.' : 'Flex.'}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
-                          {heightPx > 58 && (
+                          {(isExpanded ? heightPx > 64 : heightPx > 58) && (
                             <span className="text-[8px] text-cozy-subtext truncate opacity-80">
                               {style.sub}
                             </span>

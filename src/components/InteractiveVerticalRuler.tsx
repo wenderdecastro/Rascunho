@@ -6,6 +6,8 @@ import {
   timeStringToMinutes,
   formatSecondsToHuman,
   formatDateBR,
+  snapMinutesFromRelativeY,
+  computeOverlapLayout,
 } from '../utils/helpers';
 import {
   Clock,
@@ -255,13 +257,51 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
     setAreaModalOpen(false);
   };
 
-  const clientYToSnappedMinutes = (clientY: number) => {
+  const areaOverlapLayout = useMemo(
+    () =>
+      computeOverlapLayout(
+        routineAreas,
+        (a) => {
+          const isDraggingThis = areaDrag?.area.id === a.id;
+          return {
+            startMin: isDraggingThis
+              ? areaDrag.previewStartMin
+              : timeStringToMinutes(a.startTime),
+            endMin: isDraggingThis
+              ? areaDrag.previewEndMin
+              : timeStringToMinutes(a.endTime),
+          };
+        },
+        84
+      ),
+    [routineAreas, areaDrag]
+  );
+
+  const blockOverlapLayout = useMemo(
+    () =>
+      computeOverlapLayout(
+        blocks,
+        (b) => {
+          const isDraggingThis = blockDrag?.block.id === b.id;
+          return {
+            startMin: isDraggingThis
+              ? blockDrag.previewStartMin
+              : timeStringToMinutes(b.startTime),
+            endMin: isDraggingThis
+              ? blockDrag.previewEndMin
+              : timeStringToMinutes(b.endTime),
+          };
+        },
+        84
+      ),
+    [blocks, blockDrag]
+  );
+
+  const clientYToSnappedMinutes = (clientY: number, mode: 'ANCHOR' | 'CURSOR' = 'ANCHOR') => {
     if (!canvasRef.current) return startHour * 60;
     const rect = canvasRef.current.getBoundingClientRect();
     const relY = Math.max(0, Math.min(rect.height, clientY - rect.top));
-    const totalMins = startHour * 60 + (relY / hourHeight) * 60;
-    const snapped = Math.round(totalMins / 15) * 15;
-    return Math.max(startHour * 60, Math.min(endHour * 60, snapped));
+    return snapMinutesFromRelativeY(relY, hourHeight, startHour, endHour, mode);
   };
 
   const createDragRef = useRef<CreateDragState | null>(null);
@@ -298,7 +338,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
     const handleMouseMove = (ev: MouseEvent) => {
       const cDrag = createDragRef.current;
       if (cDrag) {
-        const currentMin = dragCallbacksRef.current.clientYToSnappedMinutes(ev.clientY);
+        const currentMin = dragCallbacksRef.current.clientYToSnappedMinutes(ev.clientY, 'CURSOR');
         setCreateDrag((prev) => (prev ? { ...prev, currentMin } : null));
       }
 
@@ -456,7 +496,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
 
   const startTrackCreateDrag = (target: 'ACTIVITY' | 'AREA', e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    const anchorMin = clientYToSnappedMinutes(e.clientY);
+    const anchorMin = clientYToSnappedMinutes(e.clientY, 'ANCHOR');
     setCreateDrag({
       target,
       anchorMin,
@@ -604,6 +644,12 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 />
               ))}
 
+              {/* Right-side Reserved Creation Gutter for Overlapping Areas */}
+              <div
+                aria-hidden="true"
+                className="absolute right-0 inset-y-0 w-[16%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
+              />
+
               {/* Drag-to-Create Preview on Left Area Track */}
               {createDrag && createDrag.target === 'AREA' && (
                 <div
@@ -617,7 +663,7 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 </div>
               )}
 
-              {/* Area Cards (only affect this date) */}
+              {/* Area Cards (side-by-side overlaps + right gutter, only affect this date) */}
               {routineAreas.map((area) => {
                 const isDraggingThis = areaDrag?.area.id === area.id;
                 const sMin = isDraggingThis
@@ -631,6 +677,12 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 const heightPx = Math.max(22, ((eMin - sMin) / 60) * hourHeight);
                 const meta = TIER_META[area.tier] || TIER_META.BACKGROUND;
                 const isCompact = heightPx < 44;
+                const slot = areaOverlapLayout[area.id] ?? {
+                  colIndex: 0,
+                  totalCols: 1,
+                  leftCss: '2px',
+                  widthCss: 'calc(84% - 3px)',
+                };
 
                 return (
                   <div
@@ -649,8 +701,13 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                         hasMoved: false,
                       });
                     }}
-                    style={{ top: `${topPx}px`, height: `${heightPx}px` }}
-                    className={`group/area absolute inset-x-1 rounded-xl flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing z-10 transition-shadow ${
+                    style={{
+                      top: `${topPx}px`,
+                      height: `${heightPx}px`,
+                      left: slot.leftCss,
+                      width: slot.widthCss,
+                    }}
+                    className={`group/area absolute rounded-xl flex flex-col justify-between overflow-hidden cursor-grab active:cursor-grabbing z-10 transition-shadow ${
                       meta.areaBg
                     } ${isDraggingThis ? 'ring-2 ring-cozy-peach z-30 opacity-95' : ''}`}
                   >
@@ -757,6 +814,12 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 </div>
               ))}
 
+              {/* Right-side Reserved Creation Gutter for Overlapping Activity Blocks */}
+              <div
+                aria-hidden="true"
+                className="absolute right-0 inset-y-0 w-[16%] border-l border-dashed border-cozy-border/35 bg-cozy-bg/15 pointer-events-none"
+              />
+
               {/* Drag-to-Create Preview on Right Activity Track */}
               {createDrag && createDrag.target === 'ACTIVITY' && (
                 <div
@@ -792,6 +855,12 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                   : undefined;
 
                 const isCompact = heightPx < 48;
+                const slot = blockOverlapLayout[block.id] ?? {
+                  colIndex: 0,
+                  totalCols: 1,
+                  leftCss: '2px',
+                  widthCss: 'calc(84% - 3px)',
+                };
 
                 return (
                   <div
@@ -810,11 +879,16 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                         hasMoved: false,
                       });
                     }}
-                    style={{ top: `${topPx}px`, height: `${heightPx}px` }}
+                    style={{
+                      top: `${topPx}px`,
+                      height: `${heightPx}px`,
+                      left: slot.leftCss,
+                      width: slot.widthCss,
+                    }}
                     className={`group absolute rounded-xl border backdrop-blur-sm transition-shadow cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden ${
                       block.layer === 1
-                        ? 'left-4 right-1 z-20 shadow-lg ring-1 ring-cozy-lavender/40'
-                        : 'left-1 right-1 z-10 shadow-sm'
+                        ? 'z-20 shadow-lg ring-1 ring-cozy-lavender/40'
+                        : 'z-10 shadow-sm'
                     } ${meta.blockCard} ${isDraggingThis ? 'opacity-90 ring-2 ring-cozy-peach z-30' : ''}`}
                   >
                     {/* Top Resize Handle */}

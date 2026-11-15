@@ -43,6 +43,122 @@ export function minutesToTimeString(minutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// High-precision Y-coordinate snapping with magnetic capture for the top HH:00 line
+export function snapMinutesFromRelativeY(
+  relY: number,
+  hourHeight: number,
+  startHour: number,
+  endHour: number,
+  mode: 'ANCHOR' | 'CURSOR' = 'ANCHOR'
+): number {
+  const rawMins = startHour * 60 + (relY / hourHeight) * 60;
+  let snapped: number;
+
+  if (mode === 'ANCHOR') {
+    const shifted = rawMins + 2.5;
+    const hourBase = Math.floor(shifted / 60) * 60;
+    const offsetInHour = shifted - hourBase;
+    if (offsetInHour < 16.5) {
+      snapped = hourBase; // [-2.5m, +14m) relative to HH:00 -> HH:00
+    } else if (offsetInHour < 30.5) {
+      snapped = hourBase + 15; // [+14m, +28m) -> HH:15
+    } else if (offsetInHour < 45.5) {
+      snapped = hourBase + 30; // [+28m, +43m) -> HH:30
+    } else {
+      snapped = hourBase + 45; // [+43m, +57.5m) -> HH:45
+    }
+  } else {
+    snapped = Math.floor((rawMins + 3.5) / 15) * 15;
+  }
+
+  return Math.max(startHour * 60, Math.min(endHour * 60, snapped));
+}
+
+export interface OverlapLayoutSlot {
+  colIndex: number;
+  totalCols: number;
+  leftCss: string;
+  widthCss: string;
+}
+
+// Compute side-by-side layout slots for overlapping items while reserving a right-side creation gutter
+export function computeOverlapLayout<T extends { id: string }>(
+  items: T[],
+  getRange: (item: T) => { startMin: number; endMin: number },
+  usableWidthPct = 84
+): Record<string, OverlapLayoutSlot> {
+  const normalized = items
+    .map((item) => {
+      const r = getRange(item);
+      const startMin = Math.min(r.startMin, r.endMin);
+      const endMin = Math.max(startMin + 15, r.endMin);
+      return { id: item.id, startMin, endMin };
+    })
+    .sort((a, b) => {
+      if (a.startMin !== b.startMin) return a.startMin - b.startMin;
+      const durDiff = b.endMin - b.startMin - (a.endMin - a.startMin);
+      if (durDiff !== 0) return durDiff;
+      return a.id.localeCompare(b.id);
+    });
+
+  const result: Record<string, OverlapLayoutSlot> = {};
+  let cluster: typeof normalized = [];
+  let clusterMaxEnd = -1;
+
+  const flushCluster = (group: typeof normalized) => {
+    if (group.length === 0) return;
+    const colEnds: number[] = [];
+    const assignedCol: Record<string, number> = {};
+
+    group.forEach((entry) => {
+      let placedCol = -1;
+      for (let c = 0; c < colEnds.length; c++) {
+        if (colEnds[c] <= entry.startMin) {
+          placedCol = c;
+          colEnds[c] = entry.endMin;
+          break;
+        }
+      }
+      if (placedCol === -1) {
+        placedCol = colEnds.length;
+        colEnds.push(entry.endMin);
+      }
+      assignedCol[entry.id] = placedCol;
+    });
+
+    const totalCols = Math.max(1, colEnds.length);
+    const slotWidthPct = usableWidthPct / totalCols;
+
+    group.forEach((entry) => {
+      const colIndex = assignedCol[entry.id] ?? 0;
+      const leftPct = colIndex * slotWidthPct;
+      result[entry.id] = {
+        colIndex,
+        totalCols,
+        leftCss: `calc(${leftPct.toFixed(2)}% + 2px)`,
+        widthCss: `calc(${slotWidthPct.toFixed(2)}% - 3px)`,
+      };
+    });
+  };
+
+  normalized.forEach((item) => {
+    if (cluster.length === 0) {
+      cluster.push(item);
+      clusterMaxEnd = item.endMin;
+    } else if (item.startMin < clusterMaxEnd) {
+      cluster.push(item);
+      clusterMaxEnd = Math.max(clusterMaxEnd, item.endMin);
+    } else {
+      flushCluster(cluster);
+      cluster = [item];
+      clusterMaxEnd = item.endMin;
+    }
+  });
+  flushCluster(cluster);
+
+  return result;
+}
+
 // Local date utilities (avoiding UTC midnight shift bugs from toISOString)
 export function formatLocalDateString(date: Date): string {
   const year = date.getFullYear();
