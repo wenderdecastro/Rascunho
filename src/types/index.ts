@@ -72,13 +72,21 @@ export type RoutineAreaType = 'WORK' | 'COLLEGE' | 'COMMUTE' | 'CUSTOM';
 export interface RoutineBlock {
   id: string;
   title: string;
-  dayOfWeek: number; // 0 = Domingo, 1 = Segunda, ... 6 = Sábado
+  dayOfWeek: number; // 0 = Domingo, 1 = Segunda, ... 6 = Sábado (fallback / primeiro dia)
+  daysOfWeek?: number[]; // Template semanal: [1, 2, 3, ...]
   startTime: string; // "08:00"
   endTime: string; // "10:00"
   tier: EnergyTier;
   obligation: Obligation;
   color: string;
   areaType?: RoutineAreaType; // Legado/sugestão visual opcional
+}
+
+export interface BlockAllocatedItem {
+  id: string;
+  type: 'PROGRESS' | 'TASK';
+  targetId: string;
+  allocatedMinutes: number;
 }
 
 export interface ScheduledBlock {
@@ -95,6 +103,7 @@ export interface ScheduledBlock {
   isCancelledToday?: boolean;
   linkedProgressId?: string;
   linkedTaskId?: string;
+  allocatedItems?: BlockAllocatedItem[]; // Múltiplos progressos/tarefas ordenados dentro do bloco
   isCompleted?: boolean;
   color?: string;
   recurrence?: RecurrenceRule;

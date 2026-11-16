@@ -6,7 +6,53 @@ import {
   TaskItem,
   DayHoursConfig,
   RecurrenceRule,
+  BlockAllocatedItem,
 } from '../types';
+
+export function routineBlockMatchesDay(block: RoutineBlock, dayOfWeek: number): boolean {
+  if (Array.isArray(block.daysOfWeek) && block.daysOfWeek.length > 0) {
+    return block.daysOfWeek.includes(dayOfWeek);
+  }
+  return block.dayOfWeek === dayOfWeek;
+}
+
+export function getBlockAllocatedItems(
+  block: ScheduledBlock,
+  progressBars: ProgressBarItem[],
+  tasks: TaskItem[]
+): BlockAllocatedItem[] {
+  if (Array.isArray(block.allocatedItems) && block.allocatedItems.length > 0) {
+    return block.allocatedItems;
+  }
+  const blockDuration =
+    block.startTime && block.endTime
+      ? Math.max(15, timeStringToMinutes(block.endTime) - timeStringToMinutes(block.startTime))
+      : 45;
+  const legacy: BlockAllocatedItem[] = [];
+  if (block.linkedProgressId) {
+    const prog = progressBars.find((p) => p.id === block.linkedProgressId);
+    const mins =
+      prog?.type === 'TIME' && prog.targetDailySeconds
+        ? Math.max(5, Math.round(prog.targetDailySeconds / 60))
+        : blockDuration;
+    legacy.push({
+      id: `legacy-prog-${block.linkedProgressId}`,
+      type: 'PROGRESS',
+      targetId: block.linkedProgressId,
+      allocatedMinutes: mins,
+    });
+  }
+  if (block.linkedTaskId) {
+    const task = tasks.find((t) => t.id === block.linkedTaskId);
+    legacy.push({
+      id: `legacy-task-${block.linkedTaskId}`,
+      type: 'TASK',
+      targetId: block.linkedTaskId,
+      allocatedMinutes: task?.durationMinutes || blockDuration,
+    });
+  }
+  return legacy;
+}
 
 // Format seconds into "1h 45m" or "25m" or "0 min"
 export function formatSecondsToHuman(seconds: number): string {
@@ -355,7 +401,7 @@ export function calculateRealCapacity(
     ? Math.max(60, timeStringToMinutes(dayCfg.endHour) - timeStringToMinutes(dayCfg.startHour))
     : 16 * 60;
 
-  const dailyRoutine = routineBlocks.filter((b) => b.dayOfWeek === dayOfWeek);
+  const dailyRoutine = routineBlocks.filter((b) => routineBlockMatchesDay(b, dayOfWeek));
   const dailyScheduled = scheduledBlocks.filter(
     (b) => b.date === targetDateStr && !b.isCancelledToday
   );
@@ -388,9 +434,13 @@ export function calculateRealCapacity(
   });
 
   // Add unscheduled tasks for today (skip tasks already linked to a scheduled block on this date)
-  const scheduledTaskIds = new Set(
-    dailyScheduled.filter((b) => b.linkedTaskId).map((b) => b.linkedTaskId!)
-  );
+  const scheduledTaskIds = new Set<string>();
+  dailyScheduled.forEach((b) => {
+    if (b.linkedTaskId) scheduledTaskIds.add(b.linkedTaskId);
+    b.allocatedItems?.forEach((it) => {
+      if (it.type === 'TASK') scheduledTaskIds.add(it.targetId);
+    });
+  });
   tasks
     .filter((t) => t.date === targetDateStr && !t.isCompleted && !scheduledTaskIds.has(t.id))
     .forEach((t) => {

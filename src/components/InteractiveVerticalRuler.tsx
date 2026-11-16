@@ -8,12 +8,12 @@ import {
   formatDateBR,
   snapMinutesFromRelativeY,
   computeOverlapLayout,
+  getBlockAllocatedItems,
 } from '../utils/helpers';
 import {
   Clock,
   ShieldAlert,
   BarChart3,
-  CheckSquare,
   GripHorizontal,
   Play,
   Pause,
@@ -27,6 +27,7 @@ import {
   Wind,
   Maximize2,
   Minimize2,
+  Check,
 } from 'lucide-react';
 
 interface InteractiveVerticalRulerProps {
@@ -968,14 +969,10 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                 const heightPx = Math.max(24, ((eMin - sMin) / 60) * hourHeight);
                 const meta = TIER_META[block.tier] || TIER_META.FOCUS;
 
-                const linkedProgress = block.linkedProgressId
-                  ? progressBars.find((p) => p.id === block.linkedProgressId)
-                  : undefined;
-                const linkedTask = block.linkedTaskId
-                  ? tasks.find((t) => t.id === block.linkedTaskId)
-                  : undefined;
+                const allocatedList = getBlockAllocatedItems(block, progressBars, tasks);
+                const isBlockActiveNow = isToday && sMin <= nowMinutes && nowMinutes < eMin;
 
-                const isCompact = heightPx < 48;
+                const isCompact = heightPx < 44;
                 const slot = blockOverlapLayout[block.id] ?? {
                   colIndex: 0,
                   totalCols: 1,
@@ -1018,9 +1015,11 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                       width: widthPos,
                     }}
                     className={`group absolute rounded-xl border backdrop-blur-sm transition-[left,width,box-shadow] duration-200 cursor-grab active:cursor-grabbing flex flex-col justify-between overflow-hidden ${
-                      block.layer === 1
-                        ? 'z-20 shadow-lg ring-1 ring-cozy-lavender/40'
-                        : 'z-10 shadow-sm'
+                      isBlockActiveNow
+                        ? 'z-20 shadow-lg ring-1 ring-cozy-sage/60'
+                        : block.layer === 1
+                          ? 'z-20 shadow-lg ring-1 ring-cozy-lavender/40'
+                          : 'z-10 shadow-sm'
                     } ${meta.blockCard} ${isDraggingThis ? 'opacity-90 ring-2 ring-cozy-peach z-30' : ''}`}
                   >
                     {/* Top Resize Handle */}
@@ -1045,94 +1044,23 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                       <GripHorizontal className="w-3 h-2.5 text-cozy-subtext" />
                     </div>
 
-                    {/* Block Content */}
-                    <div className="px-2 flex-1 min-h-0 flex items-center justify-between gap-1 overflow-hidden">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start gap-1">
+                    {/* Block Content: Header + Ordered Multi-Item Simplified View */}
+                    <div className="px-2 py-0.5 flex-1 min-h-0 flex flex-col justify-start overflow-y-auto gap-1">
+                      <div className="flex items-start justify-between gap-1 shrink-0">
+                        <div className="min-w-0 flex-1 flex items-start gap-1 flex-wrap">
                           <span className="text-[9px] font-bold text-cozy-subtext tabular-nums shrink-0 mt-0.5">
-                            {minutesToTimeString(sMin)}
+                            {minutesToTimeString(sMin)}–{minutesToTimeString(eMin)}
                           </span>
                           <span className="text-[11px] font-extrabold text-cozy-text whitespace-normal break-words leading-tight">
                             {block.title}
                           </span>
+                          {block.obligation === 'MANDATORY' && !isCompact && (
+                            <span className="text-[8px] font-bold px-1 rounded bg-cozy-rose/20 text-cozy-rose inline-flex items-center gap-0.5 shrink-0">
+                              <ShieldAlert className="w-2 h-2" />
+                              Obrig.
+                            </span>
+                          )}
                         </div>
-
-                        {!isCompact && (
-                          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                            {block.obligation === 'MANDATORY' && (
-                              <span className="text-[8px] font-bold px-1 rounded bg-cozy-rose/20 text-cozy-rose flex items-center gap-0.5">
-                                <ShieldAlert className="w-2 h-2" />
-                                Obrig.
-                              </span>
-                            )}
-                            {linkedProgress && (
-                              <span className="text-[9px] font-semibold text-cozy-sage flex items-center gap-0.5 whitespace-normal break-words">
-                                <BarChart3 className="w-2.5 h-2.5 shrink-0" />
-                                <span className="whitespace-normal break-words leading-tight">
-                                  {linkedProgress.type === 'TIME' &&
-                                  linkedProgress.spentTodaySeconds !== undefined
-                                    ? formatSecondsToHuman(linkedProgress.spentTodaySeconds)
-                                    : linkedProgress.title}
-                                </span>
-                              </span>
-                            )}
-                            {linkedTask && (
-                              <span className="text-[9px] font-semibold text-cozy-sky flex items-center gap-0.5">
-                                <CheckSquare className="w-2.5 h-2.5 shrink-0" />
-                                [{linkedTask.priority}]
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Quick Actions */}
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        {linkedProgress && linkedProgress.type === 'TIME' && (
-                          <button
-                            type="button"
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (linkedProgress.isRunning) {
-                                pauseProgress(linkedProgress.id);
-                              } else {
-                                playProgress(linkedProgress.id);
-                              }
-                            }}
-                            className={`p-1 rounded-lg border transition-colors ${
-                              linkedProgress.isRunning
-                                ? 'bg-cozy-peach text-cozy-bg border-cozy-peach'
-                                : 'bg-cozy-bg/70 text-cozy-sage border-cozy-sage/40 hover:bg-cozy-sage/20'
-                            }`}
-                            title={linkedProgress.isRunning ? 'Pausar' : 'Iniciar'}
-                          >
-                            {linkedProgress.isRunning ? (
-                              <Pause className="w-2.5 h-2.5" />
-                            ) : (
-                              <Play className="w-2.5 h-2.5" />
-                            )}
-                          </button>
-                        )}
-
-                        {linkedTask && (
-                          <button
-                            type="button"
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleTask(linkedTask.id);
-                            }}
-                            className={`px-1 py-0.5 rounded-md border text-[9px] font-bold transition-colors ${
-                              linkedTask.isCompleted
-                                ? 'bg-cozy-sage/20 text-cozy-sage border-cozy-sage/40'
-                                : 'bg-cozy-bg/70 text-cozy-sky border-cozy-sky/40'
-                            }`}
-                            title={linkedTask.isCompleted ? 'Concluída' : 'Marcar como concluída'}
-                          >
-                            ✓
-                          </button>
-                        )}
 
                         <button
                           type="button"
@@ -1145,12 +1073,123 @@ export const InteractiveVerticalRuler: React.FC<InteractiveVerticalRulerProps> =
                               () => deleteEffectiveBlock(dateStr, block)
                             );
                           }}
-                          className="p-1 rounded-lg bg-cozy-bg/70 border border-cozy-border text-cozy-subtext hover:text-cozy-rose hover:border-cozy-rose/40 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all"
+                          className="p-0.5 rounded bg-cozy-bg/70 border border-cozy-border text-cozy-subtext hover:text-cozy-rose hover:border-cozy-rose/40 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all shrink-0"
                           title="Remover bloco"
                         >
                           <Trash2 className="w-2.5 h-2.5" />
                         </button>
                       </div>
+
+                      {/* Simplified ordered items inside block (Progress w/ Play/Pause at active hours + Tasks w/ checkbox + duration) */}
+                      {allocatedList.length > 0 && heightPx >= 36 && (
+                        <div className="space-y-1 pt-0.5">
+                          {allocatedList.map((item) => {
+                            if (item.type === 'PROGRESS') {
+                              const prog = progressBars.find((p) => p.id === item.targetId);
+                              if (!prog) return null;
+                              const isTimeProg = prog.type === 'TIME';
+                              const canPlayPause =
+                                isTimeProg && (isBlockActiveNow || Boolean(prog.isRunning));
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded-lg bg-cozy-bg/55 border border-cozy-border/60 text-[10px]"
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    {isTimeProg ? (
+                                      <button
+                                        type="button"
+                                        disabled={!canPlayPause}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!canPlayPause) return;
+                                          if (prog.isRunning) {
+                                            pauseProgress(prog.id);
+                                          } else {
+                                            playProgress(prog.id);
+                                          }
+                                        }}
+                                        title={
+                                          canPlayPause
+                                            ? prog.isRunning
+                                              ? 'Pausar progresso'
+                                              : 'Iniciar progresso'
+                                            : isToday
+                                              ? 'Play/Pause disponível apenas durante o horário deste bloco'
+                                              : 'Disponível apenas no dia e horário do bloco'
+                                        }
+                                        className={`p-1 rounded-md border shrink-0 transition-colors ${
+                                          !canPlayPause
+                                            ? 'bg-cozy-card/60 text-cozy-subtext border-cozy-border opacity-35 cursor-not-allowed'
+                                            : prog.isRunning
+                                              ? 'bg-cozy-peach text-cozy-bg border-cozy-peach'
+                                              : 'bg-cozy-sage/20 text-cozy-sage border-cozy-sage/40 hover:bg-cozy-sage hover:text-cozy-bg'
+                                        }`}
+                                      >
+                                        {prog.isRunning ? (
+                                          <Pause className="w-2.5 h-2.5" />
+                                        ) : (
+                                          <Play className="w-2.5 h-2.5" />
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <BarChart3 className="w-3 h-3 text-cozy-sage shrink-0" />
+                                    )}
+                                    <span className="font-bold text-cozy-text whitespace-normal break-words leading-tight">
+                                      {prog.title}
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] font-mono font-bold text-cozy-sage shrink-0 tabular-nums">
+                                    {formatSecondsToHuman(item.allocatedMinutes * 60)}
+                                  </span>
+                                </div>
+                              );
+                            }
+
+                            const task = tasks.find((t) => t.id === item.targetId);
+                            if (!task) return null;
+                            return (
+                              <div
+                                key={item.id}
+                                className="flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded-lg bg-cozy-bg/55 border border-cozy-border/60 text-[10px]"
+                              >
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleTask(task.id);
+                                  }}
+                                  className="flex items-center gap-1.5 min-w-0 flex-1 text-left"
+                                >
+                                  <span
+                                    className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                      task.isCompleted
+                                        ? 'bg-cozy-sage border-cozy-sage text-cozy-bg'
+                                        : 'border-cozy-sky/60 bg-cozy-card hover:border-cozy-sky'
+                                    }`}
+                                  >
+                                    {task.isCompleted && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                  </span>
+                                  <span
+                                    className={`font-semibold whitespace-normal break-words leading-tight ${
+                                      task.isCompleted
+                                        ? 'line-through text-cozy-subtext'
+                                        : 'text-cozy-text'
+                                    }`}
+                                  >
+                                    {task.title}
+                                  </span>
+                                </button>
+                                <span className="text-[9px] font-mono font-bold text-cozy-sky shrink-0 tabular-nums">
+                                  {formatSecondsToHuman(item.allocatedMinutes * 60)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Bottom Resize Handle */}

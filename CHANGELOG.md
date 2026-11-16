@@ -4,6 +4,22 @@ Todas as alterações notáveis do **Rascunho** são documentadas neste arquivo,
 
 ---
 
+## [1.2.4] - 2026-11-15
+
+### Added
+- **Blocos Multi-Alocação com Ordem & Controles Inline (`BlockAllocationModal`, `InteractiveVerticalRuler`, `MeuDiaView`):**
+  - Modal reestruturado em **2 seções**: configurações principais do bloco na esquerda (título, horário/dia inteiro, obrigatoriedade, tag de energia e recorrência, sem a opção de Empilhamento) e seleção múltipla + reordenação (`↑`/`↓`) e edição individual de tempo/meta diária na direita.
+  - Visualização simplificada dentro de cada bloco na régua vertical exibindo todos os itens alocados na ordem configurada com o respectivo tempo ao lado: **Progressos** com Play/Pause habilitado somente durante o horário ativo do bloco, e **Tarefas** com checkbox clicável.
+  - Card **Atividade Atual** em `MeuDiaView` atualizado para exibir todos os itens do bloco atual em sequência com reordenação rápida (`↑`/`↓`), cronômetros e checklists.
+
+### Fixed
+- **Template Semanal Único na Rotina (`types/index.ts`, `helpers.ts`, `AppContext`, `RotinaView`):** Corrigido o bug que criava múltiplas entidades duplicadas ao salvar ou editar dias da rotina. Áreas da rotina passam a usar `daysOfWeek` em um único template semanal (com mesclagem/higienização automática de duplicatas existentes no `localStorage`), e o seletor de 7 checkboxes fica disponível tanto na criação quanto na edição.
+
+### Changed
+- **Expansão em `3/7` na Rotina Semanal (`RotinaView`):** Coluna expandida ajustada para ocupar exatamente `3/7` da largura (`flex: '3 1 0%'` contra `0.6667 1 0%'` nos demais 6 dias).
+
+---
+
 ## [1.2.3] - 2026-11-14
 
 ### Added

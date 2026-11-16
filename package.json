@@ -1,7 +1,7 @@
 {
   "name": "rascunho",
   "private": true,
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "SaaS de planejamento temporal, rotina contextual por níveis de energia e gestão de objetivos anti-burnout em Cozy Pastel Dark Mode.",
   "license": "MIT",
   "author": "dedezinho <contatowenderdecastro@gmail.com>",

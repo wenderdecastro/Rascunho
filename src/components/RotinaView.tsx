@@ -18,6 +18,7 @@ import {
   formatDateBR,
   snapMinutesFromRelativeY,
   computeOverlapLayout,
+  routineBlockMatchesDay,
 } from '../utils/helpers';
 import {
   Plus,
@@ -236,9 +237,11 @@ export const RotinaView: React.FC = () => {
   };
 
   const openEditModal = (block: RoutineBlock) => {
+    const initialDays =
+      block.daysOfWeek && block.daysOfWeek.length > 0 ? block.daysOfWeek : [block.dayOfWeek];
     setEditingBlock(block);
-    setFormDay(block.dayOfWeek);
-    setSelectedDays([block.dayOfWeek]);
+    setFormDay(initialDays[0] ?? block.dayOfWeek);
+    setSelectedDays(initialDays);
     setTitle(block.title);
     setStartTime(block.startTime);
     setEndTime(block.endTime);
@@ -394,7 +397,7 @@ export const RotinaView: React.FC = () => {
     const cfgEndMin = cfg ? timeStringToMinutes(cfg.endHour) : endHour * 60;
 
     const blocks = routineBlocks
-      .filter((b) => b.dayOfWeek === dayOfWeek)
+      .filter((b) => routineBlockMatchesDay(b, dayOfWeek))
       .sort((a, b) => timeStringToMinutes(a.startTime) - timeStringToMinutes(b.startTime));
 
     const freeSlots: Array<{ start: number; end: number; durationMin: number }> = [];
@@ -440,11 +443,16 @@ export const RotinaView: React.FC = () => {
     };
 
     const inferredType = inferAreaType(title.trim(), tier);
+    const targetDays =
+      selectedDays.length > 0
+        ? Array.from(new Set(selectedDays)).sort((a, b) => a - b)
+        : [formDay];
 
     if (editingBlock) {
       updateRoutineBlock(editingBlock.id, {
         title: title.trim(),
-        dayOfWeek: formDay,
+        dayOfWeek: targetDays[0],
+        daysOfWeek: targetDays,
         startTime,
         endTime,
         tier,
@@ -452,22 +460,27 @@ export const RotinaView: React.FC = () => {
         areaType: inferredType,
         color: colorMap[tier],
       });
+      showToast(
+        `Área "${title.trim()}" atualizada em ${targetDays.length} dia(s) da rotina.`,
+        'success'
+      );
     } else {
-      const targetDays = selectedDays.length > 0 ? selectedDays : [formDay];
-      targetDays.forEach((dayId) => {
-        addRoutineBlock({
-          title: title.trim(),
-          dayOfWeek: dayId,
-          startTime,
-          endTime,
-          tier,
-          obligation,
-          areaType: inferredType,
-          color: colorMap[tier],
-        });
+      addRoutineBlock({
+        title: title.trim(),
+        dayOfWeek: targetDays[0],
+        daysOfWeek: targetDays,
+        startTime,
+        endTime,
+        tier,
+        obligation,
+        areaType: inferredType,
+        color: colorMap[tier],
       });
       if (targetDays.length > 1) {
-        showToast(`Área "${title.trim()}" adicionada a ${targetDays.length} dias da rotina.`, 'success');
+        showToast(
+          `Área "${title.trim()}" configurada para ${targetDays.length} dias da rotina.`,
+          'success'
+        );
       }
     }
 
@@ -599,7 +612,9 @@ export const RotinaView: React.FC = () => {
               </span>
             </div>
             {DAYS_OF_WEEK.map((d) => {
-              const blocksCount = routineBlocks.filter((b) => b.dayOfWeek === d.id).length;
+              const blocksCount = routineBlocks.filter((b) =>
+                routineBlockMatchesDay(b, d.id)
+              ).length;
               const isTodayCol = d.id === currentDayOfWeek;
               const isExpanded = expandedDayId === d.id;
               const isShrunk = expandedDayId !== null && !isExpanded;
@@ -609,13 +624,13 @@ export const RotinaView: React.FC = () => {
                   type="button"
                   onClick={() => setExpandedDayId((prev) => (prev === d.id ? null : d.id))}
                   style={{
-                    flex: isExpanded ? '4.2 1 0%' : isShrunk ? '0.85 1 0%' : '1 1 0%',
-                    minWidth: isExpanded ? '380px' : isShrunk ? '90px' : '130px',
+                    flex: isExpanded ? '3 1 0%' : isShrunk ? '0.6667 1 0%' : '1 1 0%',
+                    minWidth: isExpanded ? '230px' : isShrunk ? '82px' : '115px',
                   }}
                   title={
                     isExpanded
                       ? 'Clique para restaurar todos os dias'
-                      : `Expandir ${d.name} para ver áreas sobrepostas lado a lado`
+                      : `Expandir ${d.name} (3/7 da largura) para ver áreas lado a lado`
                   }
                   className={`p-2.5 rounded-2xl border text-center transition-all duration-300 ease-out cursor-pointer group ${
                     isExpanded
@@ -670,7 +685,7 @@ export const RotinaView: React.FC = () => {
 
             {/* 7 Vertical Day Columns */}
             {DAYS_OF_WEEK.map((d) => {
-              const dayBlocks = routineBlocks.filter((b) => b.dayOfWeek === d.id);
+              const dayBlocks = routineBlocks.filter((b) => routineBlockMatchesDay(b, d.id));
               const freeWindows = getDayFreeWindows(d.id);
               const isTodayCol = d.id === currentDayOfWeek;
               const isExpanded = expandedDayId === d.id;
@@ -717,8 +732,8 @@ export const RotinaView: React.FC = () => {
                   }`}
                   style={{
                     height: `${hoursList.length * HOUR_HEIGHT}px`,
-                    flex: isExpanded ? '4.2 1 0%' : isShrunk ? '0.85 1 0%' : '1 1 0%',
-                    minWidth: isExpanded ? '380px' : isShrunk ? '90px' : '130px',
+                    flex: isExpanded ? '3 1 0%' : isShrunk ? '0.6667 1 0%' : '1 1 0%',
+                    minWidth: isExpanded ? '230px' : isShrunk ? '82px' : '115px',
                   }}
                 >
                   {/* Hour Grid Lines */}
@@ -901,11 +916,17 @@ export const RotinaView: React.FC = () => {
                               onMouseDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const dayCount =
+                                  block.daysOfWeek && block.daysOfWeek.length > 0
+                                    ? block.daysOfWeek.length
+                                    : 1;
                                 requestConfirm(
                                   'Excluir da Rotina Semanal',
-                                  `Remover a área "${block.title}" de todas as ${
-                                    DAYS_OF_WEEK.find((dw) => dw.id === block.dayOfWeek)?.name || ''
-                                  }s?`,
+                                  dayCount > 1
+                                    ? `Remover o template "${block.title}" dos ${dayCount} dia(s) selecionados na rotina?`
+                                    : `Remover a área "${block.title}" de todas as ${
+                                        DAYS_OF_WEEK.find((dw) => dw.id === d.id)?.name || ''
+                                      }s?`,
                                   () => deleteRoutineBlock(block.id)
                                 );
                               }}
@@ -1138,55 +1159,39 @@ export const RotinaView: React.FC = () => {
                 </div>
               </div>
 
-              {editingBlock ? (
-                <div>
-                  <label className="block text-xs font-bold mb-1">Dia da Semana</label>
-                  <select
-                    value={formDay}
-                    onChange={(e) => setFormDay(Number(e.target.value))}
-                    className="w-full px-4 py-2 rounded-2xl border border-cozy-border bg-cozy-bg text-xs font-bold text-cozy-text"
-                  >
-                    {DAYS_OF_WEEK.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+              <div>
+                <label className="block text-xs font-bold mb-1.5">
+                  Dias da Semana ({selectedDays.length} selecionado(s))
+                </label>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {DAYS_OF_WEEK.map((d) => {
+                    const active = selectedDays.includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedDays((prev) =>
+                            prev.includes(d.id)
+                              ? prev.length > 1
+                                ? prev.filter((id) => id !== d.id)
+                                : prev
+                              : [...prev, d.id]
+                          )
+                        }
+                        className={`py-2 rounded-xl text-[11px] font-extrabold border transition-all flex flex-col items-center gap-0.5 ${
+                          active
+                            ? 'bg-cozy-lavender text-cozy-bg border-cozy-lavender shadow-sm'
+                            : 'bg-cozy-bg text-cozy-subtext border-cozy-border hover:text-cozy-text'
+                        }`}
+                      >
+                        <span>{d.short}</span>
+                        <span className="text-[9px] leading-none">{active ? '☑' : '☐'}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-bold mb-1.5">
-                    Dias da Semana ({selectedDays.length} selecionado(s))
-                  </label>
-                  <div className="grid grid-cols-7 gap-1.5">
-                    {DAYS_OF_WEEK.map((d) => {
-                      const active = selectedDays.includes(d.id);
-                      return (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() =>
-                            setSelectedDays((prev) =>
-                              prev.includes(d.id)
-                                ? prev.length > 1
-                                  ? prev.filter((id) => id !== d.id)
-                                  : prev
-                                : [...prev, d.id]
-                            )
-                          }
-                          className={`py-2 rounded-xl text-[11px] font-extrabold border transition-all ${
-                            active
-                              ? 'bg-cozy-lavender text-cozy-bg border-cozy-lavender shadow-sm'
-                              : 'bg-cozy-bg text-cozy-subtext border-cozy-border hover:text-cozy-text'
-                          }`}
-                        >
-                          {d.short}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1287,9 +1292,9 @@ export const RotinaView: React.FC = () => {
                     onClick={() =>
                       requestConfirm(
                         'Excluir Área da Rotina?',
-                        `Remover "${editingBlock.title}" de todas as ${
-                          DAYS_OF_WEEK.find((dw) => dw.id === editingBlock.dayOfWeek)?.name || ''
-                        }s?`,
+                        editingBlock.daysOfWeek && editingBlock.daysOfWeek.length > 1
+                          ? `Remover o template "${editingBlock.title}" dos ${editingBlock.daysOfWeek.length} dias da rotina semanal?`
+                          : `Remover "${editingBlock.title}" da rotina semanal?`,
                         () => {
                           deleteRoutineBlock(editingBlock.id);
                           setShowModal(false);

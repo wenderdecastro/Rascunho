@@ -7,6 +7,7 @@ import {
   minutesToTimeString,
   timeStringToMinutes,
   formatDateBR,
+  getBlockAllocatedItems,
 } from '../utils/helpers';
 import { InteractiveVerticalRuler } from './InteractiveVerticalRuler';
 import { BlockAllocationModal } from './BlockAllocationModal';
@@ -27,6 +28,8 @@ import {
   Edit2,
   Calendar as CalendarIcon,
   Clock,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 
 export const MeuDiaView: React.FC = () => {
@@ -36,6 +39,7 @@ export const MeuDiaView: React.FC = () => {
     pauseProgress,
     resumeFromPause,
     resetProgress,
+    progressBars,
     tasks,
     scheduledBlocks,
     dayOverrides,
@@ -51,6 +55,7 @@ export const MeuDiaView: React.FC = () => {
     updateTask,
     deleteTask,
     deleteEffectiveBlock,
+    reorderBlockAllocatedItems,
     autoDistributeTasksForDate,
     setSelectedDate,
     setActiveTab,
@@ -97,9 +102,10 @@ export const MeuDiaView: React.FC = () => {
   const isRunning = activeProgress?.isRunning && !activeProgress?.isPaused;
   const isPaused = activeProgress?.isPaused;
 
-  const activeTask = activeBlock?.linkedTaskId
-    ? tasks.find((t) => t.id === activeBlock.linkedTaskId)
-    : undefined;
+  const activeAllocatedItems = useMemo(
+    () => (activeBlock ? getBlockAllocatedItems(activeBlock, progressBars, tasks) : []),
+    [activeBlock, progressBars, tasks]
+  );
 
   const upcomingNonRecurringEvents = useMemo(() => {
     const nowMin = timeStringToMinutes(currentTimeStr);
@@ -467,7 +473,7 @@ export const MeuDiaView: React.FC = () => {
             {!isFreeSlot && activeBlock ? (
               <div className="space-y-4">
                 <div>
-                  <h3 className="font-extrabold text-xl text-cozy-text leading-tight">
+                  <h3 className="font-extrabold text-xl text-cozy-text whitespace-normal break-words leading-tight">
                     {activeBlock.title}
                   </h3>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -484,84 +490,321 @@ export const MeuDiaView: React.FC = () => {
                   </div>
                 </div>
 
-                {activeProgress ? (
-                  <div className="p-5 rounded-3xl bg-cozy-bg border border-cozy-border text-center space-y-2">
-                    <div className="text-4xl font-extrabold font-mono text-cozy-text tracking-tight">
-                      {formatSecondsToTimer(activeProgress.spentTodaySeconds || 0)}
-                    </div>
-                    <div className="text-xs text-cozy-subtext">
-                      {activeProgress.targetDailySeconds
-                        ? `Meta de hoje: ${formatSecondsToHuman(activeProgress.targetDailySeconds)}`
-                        : 'Sem meta diária definida'}
+                {activeAllocatedItems.length > 0 ? (
+                  <div className="space-y-3">
+                    {activeAllocatedItems.length > 1 && (
+                      <div className="flex items-center justify-between text-[11px] font-bold text-cozy-subtext">
+                        <span>Itens alocados em sequência ({activeAllocatedItems.length})</span>
+                        <span>Use ↑ ↓ para reordenar</span>
+                      </div>
+                    )}
+
+                    {activeAllocatedItems.map((item, idx) => {
+                      const canMoveUp = idx > 0;
+                      const canMoveDown = idx < activeAllocatedItems.length - 1;
+
+                      if (item.type === 'PROGRESS') {
+                        const prog = progressBars.find((p) => p.id === item.targetId);
+                        if (!prog) return null;
+                        const progRunning = prog.isRunning && !prog.isPaused;
+                        const progPaused = prog.isPaused;
+                        const targetSec = prog.targetDailySeconds || item.allocatedMinutes * 60;
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-4 rounded-3xl bg-cozy-bg border border-cozy-border space-y-3"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-start gap-2 min-w-0 flex-1">
+                                {activeAllocatedItems.length > 1 && (
+                                  <div className="flex flex-col gap-0.5 shrink-0 pt-0.5">
+                                    <button
+                                      type="button"
+                                      disabled={!canMoveUp}
+                                      onClick={() =>
+                                        reorderBlockAllocatedItems(todayStr, activeBlock, idx, idx - 1)
+                                      }
+                                      className="p-0.5 rounded bg-cozy-card border border-cozy-border text-cozy-subtext hover:text-cozy-text disabled:opacity-30"
+                                      title="Subir na ordem"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={!canMoveDown}
+                                      onClick={() =>
+                                        reorderBlockAllocatedItems(todayStr, activeBlock, idx, idx + 1)
+                                      }
+                                      className="p-0.5 rounded bg-cozy-card border border-cozy-border text-cozy-subtext hover:text-cozy-text disabled:opacity-30"
+                                      title="Descer na ordem"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {activeAllocatedItems.length > 1 && (
+                                      <span className="text-[10px] font-mono font-extrabold text-cozy-subtext">
+                                        {idx + 1}º
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-cozy-sage/15 text-cozy-sage">
+                                      Progresso
+                                    </span>
+                                    <span className="text-xs font-extrabold text-cozy-text whitespace-normal break-words leading-snug">
+                                      {prog.title}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <span className="text-xs font-mono font-bold text-cozy-sage shrink-0">
+                                {formatSecondsToHuman(item.allocatedMinutes * 60)}
+                              </span>
+                            </div>
+
+                            {prog.type === 'TIME' && (
+                              <>
+                                <div className="text-center space-y-1.5">
+                                  <div className="text-3xl font-extrabold font-mono text-cozy-text tracking-tight">
+                                    {formatSecondsToTimer(prog.spentTodaySeconds || 0)}
+                                  </div>
+                                  <div className="text-[11px] text-cozy-subtext">
+                                    Meta de hoje: {formatSecondsToHuman(targetSec)}
+                                  </div>
+                                  <div className="w-full h-2 rounded-full bg-cozy-card overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-cozy-sage transition-all duration-300"
+                                      style={{
+                                        width: `${Math.min(
+                                          100,
+                                          Math.round(((prog.spentTodaySeconds || 0) / targetSec) * 100)
+                                        )}%`,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-center gap-2.5 pt-1">
+                                  {progRunning ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => pauseProgress(prog.id)}
+                                      className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-cozy-butter text-cozy-bg hover:brightness-110 font-extrabold text-xs transition-all shadow-cozy-pill"
+                                    >
+                                      <Pause className="w-3.5 h-3.5" />
+                                      <span>Pausar</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        progPaused ? resumeFromPause(prog.id) : playProgress(prog.id)
+                                      }
+                                      className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-cozy-sage text-cozy-bg hover:brightness-110 font-extrabold text-xs transition-all shadow-cozy-pill"
+                                    >
+                                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                                      <span>{progPaused ? 'Retomar' : 'Iniciar Foco'}</span>
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => resetProgress(prog.id)}
+                                    className="p-2.5 rounded-full bg-cozy-card border border-cozy-border text-cozy-subtext hover:bg-cozy-hover transition-all"
+                                    title="Resetar tempo de hoje"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      const taskObj = tasks.find((t) => t.id === item.targetId);
+                      if (!taskObj) return null;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="p-4 rounded-3xl bg-cozy-bg border border-cozy-border space-y-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2 min-w-0 flex-1">
+                              {activeAllocatedItems.length > 1 && (
+                                <div className="flex flex-col gap-0.5 shrink-0 pt-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={!canMoveUp}
+                                    onClick={() =>
+                                      reorderBlockAllocatedItems(todayStr, activeBlock, idx, idx - 1)
+                                    }
+                                    className="p-0.5 rounded bg-cozy-card border border-cozy-border text-cozy-subtext hover:text-cozy-text disabled:opacity-30"
+                                    title="Subir na ordem"
+                                  >
+                                    <ArrowUp className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!canMoveDown}
+                                    onClick={() =>
+                                      reorderBlockAllocatedItems(todayStr, activeBlock, idx, idx + 1)
+                                    }
+                                    className="p-0.5 rounded bg-cozy-card border border-cozy-border text-cozy-subtext hover:text-cozy-text disabled:opacity-30"
+                                    title="Descer na ordem"
+                                  >
+                                    <ArrowDown className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => toggleTask(taskObj.id)}
+                                className="flex items-start gap-2 text-left min-w-0 flex-1"
+                              >
+                                <span
+                                  className={`mt-0.5 w-4 h-4 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                                    taskObj.isCompleted
+                                      ? 'bg-cozy-sage border-cozy-sage text-cozy-bg'
+                                      : 'border-cozy-sky/60 bg-cozy-card hover:border-cozy-sky'
+                                  }`}
+                                >
+                                  {taskObj.isCompleted && <Check className="w-3 h-3 stroke-[3]" />}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {activeAllocatedItems.length > 1 && (
+                                      <span className="text-[10px] font-mono font-extrabold text-cozy-subtext">
+                                        {idx + 1}º
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] font-bold text-cozy-sky">
+                                      [{taskObj.priority}]
+                                    </span>
+                                    <span
+                                      className={`text-xs font-extrabold whitespace-normal break-words leading-snug ${
+                                        taskObj.isCompleted
+                                          ? 'line-through text-cozy-subtext'
+                                          : 'text-cozy-text'
+                                      }`}
+                                    >
+                                      {taskObj.title}
+                                    </span>
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+
+                            <span className="text-xs font-mono font-bold text-cozy-sky shrink-0">
+                              {formatSecondsToHuman(item.allocatedMinutes * 60)}
+                            </span>
+                          </div>
+
+                          {taskObj.subitems && taskObj.subitems.length > 0 && (
+                            <div className="space-y-1.5 pl-6">
+                              {taskObj.subitems.map((sub) => (
+                                <button
+                                  key={sub.id}
+                                  type="button"
+                                  onClick={() => toggleTaskSubitem(taskObj.id, sub.id)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-cozy-card border border-cozy-border text-xs text-left hover:bg-cozy-hover"
+                                >
+                                  <span
+                                    className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                                      sub.isCompleted
+                                        ? 'bg-cozy-sage border-cozy-sage text-cozy-bg'
+                                        : 'border-cozy-border'
+                                    }`}
+                                  >
+                                    {sub.isCompleted && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </span>
+                                  <span
+                                    className={`whitespace-normal break-words leading-snug ${
+                                      sub.isCompleted ? 'line-through text-cozy-subtext' : 'text-cozy-text'
+                                    }`}
+                                  >
+                                    {sub.title}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : activeProgress ? (
+                  <>
+                    <div className="p-5 rounded-3xl bg-cozy-bg border border-cozy-border text-center space-y-2">
+                      <div className="text-4xl font-extrabold font-mono text-cozy-text tracking-tight">
+                        {formatSecondsToTimer(activeProgress.spentTodaySeconds || 0)}
+                      </div>
+                      <div className="text-xs text-cozy-subtext">
+                        {activeProgress.targetDailySeconds
+                          ? `Meta de hoje: ${formatSecondsToHuman(activeProgress.targetDailySeconds)}`
+                          : 'Sem meta diária definida'}
+                      </div>
+
+                      {activeProgress.targetDailySeconds && (
+                        <div className="pt-2 space-y-1.5">
+                          <div className="w-full h-2 rounded-full bg-cozy-card overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-cozy-sage transition-all duration-300"
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  Math.round(
+                                    ((activeProgress.spentTodaySeconds || 0) /
+                                      activeProgress.targetDailySeconds) *
+                                      100
+                                  )
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    {activeProgress.targetDailySeconds && (
-                      <div className="pt-2 space-y-1.5">
-                        <div className="w-full h-2 rounded-full bg-cozy-card overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-cozy-sage transition-all duration-300"
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                Math.round(
-                                  ((activeProgress.spentTodaySeconds || 0) /
-                                    activeProgress.targetDailySeconds) *
-                                    100
-                                )
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : activeTask ? (
-                  <div className="p-4 rounded-3xl bg-cozy-bg border border-cozy-border space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-cozy-sky flex items-center gap-1.5">
-                        <CheckSquare className="w-4 h-4" />
-                        Tarefa Alocada [{activeTask.priority}]
-                      </span>
-                      <button
-                        onClick={() => toggleTask(activeTask.id)}
-                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
-                          activeTask.isCompleted
-                            ? 'bg-cozy-sage/20 text-cozy-sage border-cozy-sage/40'
-                            : 'bg-cozy-card text-cozy-subtext border-cozy-border hover:text-cozy-text'
-                        }`}
-                      >
-                        {activeTask.isCompleted ? '✓ Concluída' : 'Marcar Feita'}
-                      </button>
-                    </div>
-                    {activeTask.subitems && activeTask.subitems.length > 0 && (
-                      <div className="space-y-1.5">
-                        {activeTask.subitems.map((sub) => (
+                    {activeProgress.type === 'TIME' && (
+                      <div className="flex items-center justify-center gap-3 pt-1">
+                        {isRunning ? (
                           <button
-                            key={sub.id}
-                            onClick={() => toggleTaskSubitem(activeTask.id, sub.id)}
-                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-cozy-card border border-cozy-border text-xs text-left hover:bg-cozy-hover"
+                            onClick={() => pauseProgress(activeProgress.id)}
+                            className="flex items-center gap-2 px-6 py-3 rounded-full bg-cozy-butter text-cozy-bg hover:brightness-110 font-extrabold text-sm transition-all shadow-cozy-pill"
                           >
-                            <span
-                              className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
-                                sub.isCompleted
-                                  ? 'bg-cozy-sage border-cozy-sage text-cozy-bg'
-                                  : 'border-cozy-border'
-                              }`}
-                            >
-                              {sub.isCompleted && <Check className="w-3 h-3 stroke-[3]" />}
-                            </span>
-                            <span
-                              className={
-                                sub.isCompleted ? 'line-through text-cozy-subtext' : 'text-cozy-text'
-                              }
-                            >
-                              {sub.title}
-                            </span>
+                            <Pause className="w-4 h-4" />
+                            <span>Pausar</span>
                           </button>
-                        ))}
+                        ) : (
+                          <button
+                            onClick={() =>
+                              isPaused
+                                ? resumeFromPause(activeProgress.id)
+                                : playProgress(activeProgress.id)
+                            }
+                            className="flex items-center gap-2 px-6 py-3 rounded-full bg-cozy-sage text-cozy-bg hover:brightness-110 font-extrabold text-sm transition-all shadow-cozy-pill"
+                          >
+                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                            <span>{isPaused ? 'Retomar' : 'Iniciar Foco'}</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => resetProgress(activeProgress.id)}
+                          className="p-3 rounded-full bg-cozy-bg border border-cozy-border text-cozy-subtext hover:bg-cozy-hover transition-all"
+                          title="Resetar tempo de hoje"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
                       </div>
                     )}
-                  </div>
+                  </>
                 ) : (
                   <div className="p-5 rounded-3xl bg-cozy-bg border border-cozy-border text-center">
                     <div className="text-xs font-bold text-cozy-subtext">
@@ -570,40 +813,6 @@ export const MeuDiaView: React.FC = () => {
                     <p className="text-xs text-cozy-subtext mt-1">
                       {activeBlock.title} ({activeBlock.startTime} - {activeBlock.endTime})
                     </p>
-                  </div>
-                )}
-
-                {activeProgress && activeProgress.type === 'TIME' && (
-                  <div className="flex items-center justify-center gap-3 pt-1">
-                    {isRunning ? (
-                      <button
-                        onClick={() => pauseProgress(activeProgress.id)}
-                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-cozy-butter text-cozy-bg hover:brightness-110 font-extrabold text-sm transition-all shadow-cozy-pill"
-                      >
-                        <Pause className="w-4 h-4" />
-                        <span>Pausar</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() =>
-                          isPaused
-                            ? resumeFromPause(activeProgress.id)
-                            : playProgress(activeProgress.id)
-                        }
-                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-cozy-sage text-cozy-bg hover:brightness-110 font-extrabold text-sm transition-all shadow-cozy-pill"
-                      >
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                        <span>{isPaused ? 'Retomar' : 'Iniciar Foco'}</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => resetProgress(activeProgress.id)}
-                      className="p-3 rounded-full bg-cozy-bg border border-cozy-border text-cozy-subtext hover:bg-cozy-hover transition-all"
-                      title="Resetar tempo de hoje"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
                   </div>
                 )}
               </div>

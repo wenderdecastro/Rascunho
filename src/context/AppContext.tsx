@@ -27,6 +27,8 @@ import {
   formatLocalDateString,
   addDaysToDateString,
   expandRecurrenceDates,
+  routineBlockMatchesDay,
+  getBlockAllocatedItems,
 } from '../utils/helpers';
 
 export type ActiveTab = 'MEU_DIA' | 'AGENDA' | 'ROTINA' | 'PROGRESSOS' | 'CONFIGURACOES';
@@ -99,6 +101,12 @@ interface AppContextType {
     dateStr: string,
     block: ScheduledBlock,
     updates: Partial<ScheduledBlock>
+  ) => void;
+  reorderBlockAllocatedItems: (
+    dateStr: string,
+    block: ScheduledBlock,
+    fromIndex: number,
+    toIndex: number
   ) => void;
   deleteEffectiveBlock: (dateStr: string, block: ScheduledBlock) => void;
   autoFillBlock: (blockId: string) => boolean;
@@ -204,6 +212,47 @@ export function normalizeEnergyTier(tier: string | undefined): EnergyTier {
     return tier;
   }
   return 'BACKGROUND';
+}
+
+function sanitizeAndMergeRoutineBlocks(raw: RoutineBlock[]): RoutineBlock[] {
+  const grouped = new Map<string, RoutineBlock>();
+  const seenIds = new Set<string>();
+
+  raw.forEach((item, idx) => {
+    const tier = normalizeEnergyTier(item.tier);
+    const cleanTitle = (item.title || '').trim();
+    const sig = `${cleanTitle.toLowerCase()}|${item.startTime}|${item.endTime}|${tier}|${item.obligation}`;
+    const itemDays =
+      Array.isArray(item.daysOfWeek) && item.daysOfWeek.length > 0
+        ? item.daysOfWeek
+        : [item.dayOfWeek];
+
+    const existing = grouped.get(sig);
+    if (existing) {
+      const mergedDays = Array.from(
+        new Set([...(existing.daysOfWeek || [existing.dayOfWeek]), ...itemDays])
+      ).sort((a, b) => a - b);
+      existing.daysOfWeek = mergedDays;
+      existing.dayOfWeek = mergedDays[0] ?? existing.dayOfWeek;
+    } else {
+      let uniqueId = item.id || `rout-${Date.now()}-${idx}`;
+      if (seenIds.has(uniqueId)) {
+        uniqueId = `rout-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+      }
+      seenIds.add(uniqueId);
+      const sortedDays = Array.from(new Set(itemDays)).sort((a, b) => a - b);
+      grouped.set(sig, {
+        ...item,
+        id: uniqueId,
+        title: cleanTitle || item.title,
+        tier,
+        dayOfWeek: sortedDays[0] ?? item.dayOfWeek,
+        daysOfWeek: sortedDays,
+      });
+    }
+  });
+
+  return Array.from(grouped.values());
 }
 
 function loadFromStorage<T>(suffix: string, fallback: T): T {
@@ -522,10 +571,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }))
   );
   const [routineBlocks, setRoutineBlocks] = useState<RoutineBlock[]>(() =>
-    loadFromStorage('_routine', defaultRoutine).map((r) => ({
-      ...r,
-      tier: normalizeEnergyTier(r.tier),
-    }))
+    sanitizeAndMergeRoutineBlocks(loadFromStorage('_routine', defaultRoutine))
   );
   const [scheduledBlocks, setScheduledBlocks] = useState<ScheduledBlock[]>(() =>
     loadFromStorage('_scheduled', defaultScheduled).map((b) => ({
@@ -749,7 +795,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       const hiddenIds = dateStr ? dayOverrides[dateStr]?.hiddenRoutineIds || [] : [];
       return routineBlocks
-        .filter((r) => r.dayOfWeek === dayOfWeek && !hiddenIds.includes(r.id))
+        .filter((r) => routineBlockMatchesDay(r, dayOfWeek) && !hiddenIds.includes(r.id))
         .map((r) => ({
           ...r,
           tier: normalizeEnergyTier(r.tier),
@@ -768,7 +814,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
       const hiddenIds = existing?.hiddenRoutineIds || [];
       return routineBlocks
-        .filter((r) => r.dayOfWeek === dayOfWeek && !hiddenIds.includes(r.id))
+        .filter((r) => routineBlockMatchesDay(r, dayOfWeek) && !hiddenIds.includes(r.id))
         .map((r) => ({ ...r, tier: normalizeEnergyTier(r.tier) }));
     },
     [routineBlocks]
@@ -914,9 +960,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const matchedBlock = matchedBlocks.find((b) => b.layer === 1) || matchedBlocks[0] || null;
+    const matchedItems = matchedBlock
+      ? getBlockAllocatedItems(matchedBlock, progressBars, tasks)
+      : [];
+    const blockProgressIds = matchedItems
+      .filter((it) => it.type === 'PROGRESS')
+      .map((it) => it.targetId);
 
     let matchedProgress: ProgressBarItem | null = null;
-    if (matchedBlock?.linkedProgressId) {
+    if (blockProgressIds.length > 0) {
+      matchedProgress =
+        progressBars.find((p) => blockProgressIds.includes(p.id) && (p.isRunning || p.isPaused)) ||
+        progressBars.find((p) => p.id === blockProgressIds[0]) ||
+        null;
+    } else if (matchedBlock?.linkedProgressId) {
       matchedProgress = progressBars.find((p) => p.id === matchedBlock.linkedProgressId) || null;
     } else if (matchedBlock) {
       matchedProgress =
@@ -939,7 +996,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isFreeSlot: matchedBlock === null,
       currentTimeStr,
     };
-  }, [currentTimeStr, getEffectiveBlocksForDate, todayStr, progressBars, getRoutineAreasForDay]);
+  }, [currentTimeStr, getEffectiveBlocksForDate, todayStr, progressBars, tasks, getRoutineAreasForDay]);
 
   const getDayBoundsForDate = useCallback(
     (dateStr: string) => {
@@ -991,15 +1048,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setProgressBars((prev) => prev.filter((p) => !idsToRemove.has(p.id)));
       setScheduledBlocks((prev) =>
-        prev.map((b) =>
-          b.linkedProgressId && idsToRemove.has(b.linkedProgressId)
-            ? {
-                ...b,
-                linkedProgressId: undefined,
-                allocationType: b.allocationType === 'PROGRESS' ? undefined : b.allocationType,
-              }
-            : b
-        )
+        prev.map((b) => {
+          const filteredItems = b.allocatedItems?.filter(
+            (it) => !(it.type === 'PROGRESS' && idsToRemove.has(it.targetId))
+          );
+          const nextLinkedProg =
+            b.linkedProgressId && idsToRemove.has(b.linkedProgressId)
+              ? filteredItems?.find((it) => it.type === 'PROGRESS')?.targetId
+              : b.linkedProgressId;
+          return {
+            ...b,
+            allocatedItems: filteredItems,
+            linkedProgressId: nextLinkedProg,
+            allocationType:
+              b.allocationType === 'PROGRESS' && !nextLinkedProg
+                ? b.linkedTaskId
+                  ? 'TASK'
+                  : undefined
+                : b.allocationType,
+          };
+        })
       );
     },
     [progressBars]
@@ -1160,17 +1228,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   }, []);
 
-  // Routine Actions
+  // Routine Actions (single template entity per routine area with daysOfWeek)
   const addRoutineBlock = useCallback((block: Omit<RoutineBlock, 'id'>) => {
+    const cleanDays =
+      Array.isArray(block.daysOfWeek) && block.daysOfWeek.length > 0
+        ? Array.from(new Set(block.daysOfWeek)).sort((a, b) => a - b)
+        : [block.dayOfWeek];
     const newBlock: RoutineBlock = {
       ...block,
-      id: `rout-${Date.now()}`,
+      dayOfWeek: cleanDays[0],
+      daysOfWeek: cleanDays,
+      id: `rout-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     };
     setRoutineBlocks((prev) => [...prev, newBlock]);
   }, []);
 
   const updateRoutineBlock = useCallback((id: string, updates: Partial<RoutineBlock>) => {
-    setRoutineBlocks((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+    setRoutineBlocks((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const nextDays =
+          updates.daysOfWeek && updates.daysOfWeek.length > 0
+            ? Array.from(new Set(updates.daysOfWeek)).sort((a, b) => a - b)
+            : r.daysOfWeek;
+        return {
+          ...r,
+          ...updates,
+          daysOfWeek: nextDays,
+          dayOfWeek:
+            updates.dayOfWeek !== undefined
+              ? updates.dayOfWeek
+              : nextDays && nextDays.length > 0
+                ? nextDays[0]
+                : r.dayOfWeek,
+        };
+      })
+    );
   }, []);
 
   // Direct synchronous delete (UI calls requestConfirm before invoking)
@@ -1238,6 +1331,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     },
     []
+  );
+
+  const reorderBlockAllocatedItems = useCallback(
+    (dateStr: string, block: ScheduledBlock, fromIndex: number, toIndex: number) => {
+      const currentItems = getBlockAllocatedItems(block, progressBars, tasks);
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= currentItems.length ||
+        toIndex >= currentItems.length ||
+        fromIndex === toIndex
+      ) {
+        return;
+      }
+      const nextItems = [...currentItems];
+      const [moved] = nextItems.splice(fromIndex, 1);
+      nextItems.splice(toIndex, 0, moved);
+      const firstProg = nextItems.find((it) => it.type === 'PROGRESS');
+      const firstTask = nextItems.find((it) => it.type === 'TASK');
+      updateEffectiveBlock(dateStr, block, {
+        allocatedItems: nextItems,
+        linkedProgressId: firstProg?.targetId,
+        linkedTaskId: firstTask?.targetId,
+      });
+    },
+    [progressBars, tasks, updateEffectiveBlock]
   );
 
   // Direct synchronous delete (UI calls requestConfirm before invoking)
@@ -1385,9 +1504,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         end: timeStringToMinutes(b.endTime),
       }));
 
-      const alreadyScheduledTaskIds = new Set(
-        existingBlocks.filter((b) => b.linkedTaskId).map((b) => b.linkedTaskId!)
-      );
+      const alreadyScheduledTaskIds = new Set<string>();
+      existingBlocks.forEach((b) => {
+        if (b.linkedTaskId) alreadyScheduledTaskIds.add(b.linkedTaskId);
+        b.allocatedItems?.forEach((it) => {
+          if (it.type === 'TASK') alreadyScheduledTaskIds.add(it.targetId);
+        });
+      });
 
       const candidateTasks = tasks
         .filter(
@@ -1605,7 +1728,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTask = useCallback((id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     setScheduledBlocks((prev) =>
-      prev.filter((b) => !(b.allocationType === 'TASK' && b.linkedTaskId === id))
+      prev
+        .filter((b) => {
+          const hasMultiItems = Array.isArray(b.allocatedItems) && b.allocatedItems.length > 0;
+          if (hasMultiItems) {
+            const remaining = b.allocatedItems!.filter(
+              (it) => !(it.type === 'TASK' && it.targetId === id)
+            );
+            return remaining.length > 0;
+          }
+          return !(b.allocationType === 'TASK' && b.linkedTaskId === id);
+        })
+        .map((b) => {
+          if (!Array.isArray(b.allocatedItems)) return b;
+          const remaining = b.allocatedItems.filter(
+            (it) => !(it.type === 'TASK' && it.targetId === id)
+          );
+          const nextTaskId =
+            b.linkedTaskId === id
+              ? remaining.find((it) => it.type === 'TASK')?.targetId
+              : b.linkedTaskId;
+          return {
+            ...b,
+            allocatedItems: remaining,
+            linkedTaskId: nextTaskId,
+          };
+        })
     );
   }, []);
 
@@ -1735,6 +1883,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deleteRoutineBlock,
       addScheduledBlock,
       updateEffectiveBlock,
+      reorderBlockAllocatedItems,
       deleteEffectiveBlock,
       autoFillBlock,
       autoDistributeTasksForDate,
@@ -1796,6 +1945,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deleteRoutineBlock,
       addScheduledBlock,
       updateEffectiveBlock,
+      reorderBlockAllocatedItems,
       deleteEffectiveBlock,
       autoFillBlock,
       autoDistributeTasksForDate,
